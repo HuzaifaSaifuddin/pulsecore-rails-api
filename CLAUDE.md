@@ -74,10 +74,23 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 - `current_facility` (`User#default_facility`) gates all facility-scoped screens; no per-action
   facility picker. Auto-set on login only if exactly one accessible facility.
 
+## Deviations from the brief (deliberate, revisit if wrong)
+
+- **No nullable-organization "bootstrap/system account" on User** (brief §2 mentions this for
+  Django's admin-reuses-User-model pattern). Decided 2026-08-15: ActiveAdmin (checkpoint 6) will
+  get its own separate `AdminUser` model instead of authenticating through `User` — consistent
+  with brief §4's own "a future ops tool should be a separate, audited surface" principle, and
+  reusing `User` for ActiveAdmin login would put a roleless/orgless row in the same table as real
+  tenant staff, which is exactly the shape §4 warns against. Consequence: `User.organization_id`,
+  `first_name`, `last_name` are all unconditionally required (no conditional/bootstrap exemption),
+  and `full_name`'s fallback-to-email branch was removed as dead code. **Revisit explicitly at
+  checkpoint 6** if ActiveAdmin ends up needing to reuse `User` for some reason.
+
 ## Progress
 
 **Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
-Facility ✅ → User/auth (next) → Patient → Appointment → Admission.
+Facility ✅ → User/auth (pass 1 done, pass 2 — `accessible_facilities` + caching — still pending) →
+Patient (next) → Appointment → Admission.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -100,6 +113,18 @@ Facility ✅ → User/auth (next) → Patient → Appointment → Admission.
   a DSL — the opposite of what a rusty-on-RSpec refresher needs) and no Rails fixtures (skip
   validations on insert, global shared mutable state — bad fit once Appointment/Admission specs
   need many small permutations of status/date). Organization + Facility specs (8 examples) pass.
+- User + FacilityMembership (`37533f6`): User UUID PK, email unique (validation + DB index),
+  `first_name`/`last_name`/`role`/`organization_id` all unconditionally required (see "Deviations
+  from the brief" above for why `organization_id` isn't nullable), `default_facility_id` optional
+  FK to `facilities` (needed explicit `foreign_key: { to_table: :facilities }` since the column
+  name doesn't match Rails' table-name convention). `role` is a string column + Rails `enum` macro
+  (`org_admin`/`doctor`/`receptionist`) — chosen over a native Postgres enum type to avoid
+  `structure.sql`/`ALTER TYPE` overhead, and matches brief's "flat field, not a permissions gem"
+  intent. FacilityMembership is the `has_many :through` join model for User<->Facility (chosen
+  over bare HABTM since the brief's "explicit Facility membership" language implies a first-class
+  concept), uniqueness on `(user_id, facility_id)` via validation + composite DB index. Specs:
+  23 examples total now passing. `accessible_facilities(user)` (brief §4/§5, the actual
+  authorization logic) is still pass 2 — not yet written.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 
