@@ -16,7 +16,30 @@ class User < ApplicationRecord
   validates :last_name, presence: true
   validates :role, presence: true
 
+  after_commit :invalidate_accessible_facilities_cache, on: :update, if: :saved_change_to_role?
+
+  def self.accessible_facilities_cache_key(user_id)
+    "accessible_facilities:#{user_id}"
+  end
+
   def full_name
     [ first_name, last_name ].compact_blank.join(" ").presence
+  end
+
+  def accessible_facilities
+    facility_ids = Rails.cache.fetch(self.class.accessible_facilities_cache_key(id), expires_in: 1.hour) do
+      if org_admin?
+        organization.facilities.pluck(:id)
+      else
+        facility_memberships.pluck(:facility_id)
+      end
+    end
+    Facility.where(id: facility_ids)
+  end
+
+  private
+
+  def invalidate_accessible_facilities_cache
+    Rails.cache.delete(self.class.accessible_facilities_cache_key(id))
   end
 end

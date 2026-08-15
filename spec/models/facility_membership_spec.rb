@@ -39,4 +39,39 @@ RSpec.describe FacilityMembership, type: :model do
       expect(facility_membership.user.reload.facilities).to include(facility_membership.facility)
     end
   end
+
+  describe "accessible_facilities cache invalidation" do
+    around do |example|
+      cache = Rails.cache
+      Rails.cache = ActiveSupport::Cache::MemoryStore.new
+      example.run
+    ensure
+      Rails.cache = cache
+    end
+
+    it "invalidates the user's cache when a membership is created" do
+      organization = create(:organization)
+      user = create(:user, organization: organization, role: "doctor")
+      facility = create(:facility, organization: organization)
+
+      expect(user.accessible_facilities).to be_empty
+
+      create(:facility_membership, user: user, facility: facility)
+
+      expect(user.accessible_facilities).to contain_exactly(facility)
+    end
+
+    it "invalidates the user's cache when a membership is destroyed" do
+      organization = create(:organization)
+      user = create(:user, organization: organization, role: "doctor")
+      facility = create(:facility, organization: organization)
+      membership = create(:facility_membership, user: user, facility: facility)
+
+      expect(user.accessible_facilities).to contain_exactly(facility)
+
+      membership.destroy!
+
+      expect(user.accessible_facilities).to be_empty
+    end
+  end
 end
