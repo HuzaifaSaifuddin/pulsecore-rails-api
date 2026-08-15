@@ -74,14 +74,22 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 
 ## Progress
 
-**Current checkpoint:** 3 (domain models) — starting next. Checkpoints 1-2 done 2026-08-15:
+**Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
+Facility ✅ → User/auth (next) → Patient → Appointment → Admission.
+
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
-- Checkpoint 2: `rails new . --api --database=postgresql --skip-jbuilder --skip-test` scaffolded
-  and committed (`d8d6dce`). `pgcrypto` extension enabled via migration. `config.generators` in
-  `config/application.rb` sets `primary_key_type: :uuid` — verified (via throwaway migration,
-  not committed) that this correctly makes both `create_table id: :uuid` AND `t.references
-  type: :uuid` the defaults, so FK columns on every future domain model will be UUID-typed
-  without needing to hand-specify `type: :uuid` each time.
+- Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
+  --skip-test` scaffolded. `pgcrypto` extension enabled via migration. `config.generators` sets
+  `primary_key_type: :uuid` — verified this makes both `create_table id: :uuid` AND
+  `t.references type: :uuid` the defaults, so FK columns are UUID-typed without hand-specifying.
+- Organization (`e6f1f23`): UUID PK, `name` unique — model validation (`uniqueness: true`) +
+  DB unique index, both verified (model catches dup, raw SQL insert bypassing the model is
+  rejected by the DB index — closes the race-condition gap validation alone can't cover).
+- Facility (`46602b6`): `belongs_to :organization` (required, Rails 5+ default — no explicit
+  `optional: false` needed), `name` unique **scoped to organization_id** — model
+  `uniqueness: { scope: :organization_id }` + composite DB index `[:organization_id, :name]`.
+  Verified: same name same org rejected, same name different org allowed, missing org rejected,
+  raw SQL bypassing model rejected by DB index.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 
