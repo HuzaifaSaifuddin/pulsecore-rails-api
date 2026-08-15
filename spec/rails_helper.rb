@@ -69,4 +69,8 @@ RSpec.configure do |config|
   config.filter_rails_from_backtrace!
   # arbitrary gems may also be filtered via:
   # config.filter_gems_from_backtrace("gem name")
+
+  # Exposes FactoryBot's create/build/attributes_for directly in specs,
+  # instead of having to write FactoryBot.create every time.
+  config.include FactoryBot::Syntax::Methods
 end

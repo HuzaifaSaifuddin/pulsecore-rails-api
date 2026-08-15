@@ -48,4 +48,7 @@ group :development, :test do
 
   # RSpec testing framework for Rails applications
   gem "rspec-rails"
+
+  # Fixtures replacement for creating test data in specs
+  gem "factory_bot_rails"
 end
