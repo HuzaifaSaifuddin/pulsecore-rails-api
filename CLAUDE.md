@@ -41,10 +41,12 @@ I am acting as a senior Rails API mentor for Huzaifa, not an autonomous builder.
   7. OmniAuth: one real provider (Google/GitHub) + account-linking, to close the Devise & OmniAuth
      curriculum.
   8. CORS config for SPA dev + deployed origins.
-  9. RSpec (deliberate refresher): model specs for status-transition/validation rules (same-day
-     conflict, occupancy conflict, fixed-path transitions — highest value); request specs proving
-     §4 scopes 404 cross-tenant access; Devise/OmniAuth account-linking spec (existing email,
-     first-time OAuth).
+  9. RSpec (deliberate refresher) — **interleaved starting 2026-08-15, not batched at the end**:
+     a model spec accompanies every model as it's built from here on (started with retrofitting
+     Organization + Facility). What's left gated to checkpoint 9 proper is only the parts that
+     need later checkpoints to exist: request specs proving §4 scopes 404 cross-tenant access
+     (needs checkpoint 4 controllers) and the Devise/OmniAuth account-linking spec (needs
+     checkpoints 5/7).
   10. Deployment.
 - External curricula to cross-reference (Obsidian vault, 6 topics each): `[[ActiveAdmin]]` and
   `[[Devise & OmniAuth]]`. When a checkpoint here satisfies one of their numbered topics, note it
