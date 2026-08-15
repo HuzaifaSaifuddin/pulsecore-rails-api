@@ -92,6 +92,14 @@ Facility ✅ → User/auth (next) → Patient → Appointment → Admission.
   `uniqueness: { scope: :organization_id }` + composite DB index `[:organization_id, :name]`.
   Verified: same name same org rejected, same name different org allowed, missing org rejected,
   raw SQL bypassing model rejected by DB index.
+- Testing infra (`00ecb6f`, `ed84a22`, `376e5d1`): rspec-rails installed, RSpec checkpoint now
+  interleaved (see curriculum note above) rather than batched at the end. factory_bot_rails added
+  once Facility's spec needed 2+ levels of association setup — factories live in
+  `spec/factories/`, `sequence(:name)` used on both Organization/Facility factories since both
+  validate name uniqueness. Deliberately no shoulda-matchers (would hide validation logic behind
+  a DSL — the opposite of what a rusty-on-RSpec refresher needs) and no Rails fixtures (skip
+  validations on insert, global shared mutable state — bad fit once Appointment/Admission specs
+  need many small permutations of status/date). Organization + Facility specs (8 examples) pass.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 
