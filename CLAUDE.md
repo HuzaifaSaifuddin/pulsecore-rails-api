@@ -74,8 +74,14 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 
 ## Progress
 
-**Current checkpoint:** 1 (environment) — confirmed 2026-08-15: Ruby 3.3.11 (mise), Rails 8.1.3.1,
-Bundler 4.0.11, Postgres 16.14 (running, accepting connections). No Rails app generated yet.
+**Current checkpoint:** 3 (domain models) — starting next. Checkpoints 1-2 done 2026-08-15:
+- Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
+- Checkpoint 2: `rails new . --api --database=postgresql --skip-jbuilder --skip-test` scaffolded
+  and committed (`d8d6dce`). `pgcrypto` extension enabled via migration. `config.generators` in
+  `config/application.rb` sets `primary_key_type: :uuid` — verified (via throwaway migration,
+  not committed) that this correctly makes both `create_table id: :uuid` AND `t.references
+  type: :uuid` the defaults, so FK columns on every future domain model will be UUID-typed
+  without needing to hand-specify `type: :uuid` each time.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 
