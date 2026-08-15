@@ -89,8 +89,7 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 ## Progress
 
 **Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
-Facility ✅ → User/auth (pass 1 done, pass 2 — `accessible_facilities` + caching — still pending) →
-Patient (next) → Appointment → Admission.
+Facility ✅ → User/auth ✅ → Patient (next) → Appointment → Admission.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -122,9 +121,22 @@ Patient (next) → Appointment → Admission.
   `structure.sql`/`ALTER TYPE` overhead, and matches brief's "flat field, not a permissions gem"
   intent. FacilityMembership is the `has_many :through` join model for User<->Facility (chosen
   over bare HABTM since the brief's "explicit Facility membership" language implies a first-class
-  concept), uniqueness on `(user_id, facility_id)` via validation + composite DB index. Specs:
-  23 examples total now passing. `accessible_facilities(user)` (brief §4/§5, the actual
-  authorization logic) is still pass 2 — not yet written.
+  concept), uniqueness on `(user_id, facility_id)` via validation + composite DB index.
+- `User#accessible_facilities` (`afd86c5`, brief §4/§5's actual authorization logic): instance
+  method, returns an `ActiveRecord::Relation` built from cached facility IDs (can't cache a
+  Relation object itself — it's a lazy query object, not serializable). org_admin gets every
+  facility in their org; everyone else gets only their explicit `FacilityMembership` facilities.
+  Cached via `Rails.cache.fetch("accessible_facilities:#{id}", expires_in: 1.hour)` — 1 hour
+  chosen deliberately short since this cache sits on the authorization boundary and the TTL is
+  the blast radius if invalidation ever has a bug. Invalidation via `after_commit` (not
+  `after_save` — brief §8 specifies this; invalidating on a change that could still roll back
+  would be wrong) on User role change (`saved_change_to_role?`-guarded) and on
+  FacilityMembership create/destroy (not update — memberships aren't repointed in place in this
+  domain). `User.accessible_facilities_cache_key(user_id)` extracted as a class method since both
+  models need the same key format. Verified empirically (not assumed) that `after_commit` fires
+  correctly under RSpec's default transactional test wrapping in this Rails version — historically
+  a real gotcha in older Rails where it silently didn't.
+  Specs: 30 examples total now passing across Organization/Facility/User/FacilityMembership.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 
