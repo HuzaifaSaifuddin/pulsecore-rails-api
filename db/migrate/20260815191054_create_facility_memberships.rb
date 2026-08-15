@@ -6,6 +6,6 @@ class CreateFacilityMemberships < ActiveRecord::Migration[8.1]
 
       t.timestamps
     end
-    add_index :facility_memberships, [:user_id, :facility_id], unique: true
+    add_index :facility_memberships, [ :user_id, :facility_id ], unique: true
   end
 end

@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "COMMAND=$(cat | jq -r '.tool_input.command // empty')\ncase \"$COMMAND\" in\n  *\"git commit\"*)\n    cd /Users/huzaifa/Ruby/rails/pulse_core || exit 2\n    RUBOCOP_OUTPUT=$(bundle exec rubocop 2>&1)\n    RUBOCOP_STATUS=$?\n    if [ $RUBOCOP_STATUS -ne 0 ]; then\n      echo \"BLOCKED: rubocop found offenses. Fix them before committing.\" >&2\n      echo \"$RUBOCOP_OUTPUT\" >&2\n      exit 2\n    fi\n    ;;\nesac\nexit 0\n",
+            "timeout": 120,
+            "statusMessage": "Running rubocop before commit..."
+          },
+          {
+            "type": "command",
+            "command": "COMMAND=$(cat | jq -r '.tool_input.command // empty')\ncase \"$COMMAND\" in\n  *\"git commit\"*)\n    cd /Users/huzaifa/Ruby/rails/pulse_core || exit 2\n    RSPEC_OUTPUT=$(bundle exec rspec 2>&1)\n    RSPEC_STATUS=$?\n    if [ $RSPEC_STATUS -ne 0 ]; then\n      echo \"BLOCKED: rspec has failing examples. Fix them before committing.\" >&2\n      echo \"$RSPEC_OUTPUT\" >&2\n      exit 2\n    fi\n    ;;\nesac\nexit 0\n",
+            "timeout": 120,
+            "statusMessage": "Running rspec before commit..."
+          }
+        ]
+      }
+    ]
+  }
+}
