@@ -440,6 +440,25 @@ AR visibility scopes proper.
   `/hooks`. Note for a fresh session: a brand-new `.claude/settings.json` needs one `/hooks` reload
   (or a session restart) before the settings watcher picks it up — verified this empirically via a
   sentinel-write test, not assumed.
+- `db/seeds.rb`: two known organizations (Apollo Hospitals, Fortis Healthcare) with fixed
+  logins (`admin@`/`doctor1@`/`doctor2@`/`reception@<org-slug>.com`, password `pulsecore123`
+  for all), so there's always a predictable set of credentials and cross-tenant data to test
+  checkpoint 4's visibility scopes against. `faker` gem added (`:development` group only, not
+  `:test` — spec factories deliberately stay plain-sequence). Organization/Facility are
+  `find_or_create_by!`; User records are `find_or_initialize_by` + explicit re-assignment
+  (including password) on every run, so seed credentials never drift even if changed by hand
+  during manual testing. Patient/Appointment/Admission are cleared and freshly regenerated on
+  every run **in development only** (`Rails.env.development?`-gated — never destructive outside
+  dev), so seeded visit dates stay relative to "today" instead of whenever the DB was first
+  seeded; outside development that generation is skipped entirely once an org already has
+  patients, so it's still safe to rerun there. Appointments/admissions are constructed (not
+  randomly assigned) to satisfy the models' own conflict validations rather than working around
+  them: distinct calendar days per patient, and at most one admission per patient ever left
+  arrived/admitted. One real bug caught and fixed here: `organization.patients.delete_all`
+  (called on the `has_many` association, no `dependent:` option declared) defaults to
+  *nullifying* `organization_id` rather than deleting rows, which hit the `NOT NULL` constraint —
+  `Patient.where(organization: organization).delete_all` (a plain relation, not an association
+  proxy) is the fix; always a real `DELETE` regardless of `dependent:` config.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 

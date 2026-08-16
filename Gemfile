@@ -55,3 +55,8 @@ group :development, :test do
   # Fixtures replacement for creating test data in specs
   gem "factory_bot_rails"
 end
+
+group :development do
+  # Realistic fake names/emails/phone numbers for db/seeds.rb dev data.
+  gem "faker"
+end
