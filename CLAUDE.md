@@ -89,8 +89,7 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 ## Progress
 
 **Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
-Facility ✅ → User/auth ✅ → Patient (pass 1 done, pass 2 — `mrn` auto-generation — next) →
-Appointment → Admission.
+Facility ✅ → User/auth ✅ → Patient ✅ → Appointment (next) → Admission.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -144,16 +143,38 @@ Appointment → Admission.
   (male/female/other), same pattern as `role`. `date_of_birth` kept as a real date column rather
   than a derived/stored age (age decays every birthday; DOB is the durable source fact age can
   always be computed from, and DOB doubles as an identity-verification field alongside name).
-  `mrn` has presence + uniqueness (scoped to `organization_id`) validation and a matching
-  composite DB index already, but **no generation logic yet** — `Patient.create` is not usable
-  outside tests until pass 2 adds the auto-generation. Whatever generates it must run in
-  `before_validation`, not `before_create` — `before_create` fires after validations already ran,
-  so a presence check would still see a blank value. Also backported the `normalize_names`
-  (whitespace-strip) pattern from Patient to User for consistency. Test factories: `sequence(...)`
-  used on every uniqueness-validated field across all factories now (name, email, mrn) — same
-  lesson applied consistently after catching it live on Organization/Facility once and almost
-  repeating it on Patient's `mrn`.
-  Specs: 41 examples total now passing.
+  `mrn` has uniqueness (scoped to `organization_id`) validation and a matching composite DB index.
+  Also backported the `normalize_names` (whitespace-strip) pattern from Patient to User for
+  consistency. Test factories: `sequence(...)` used on every uniqueness-validated field across all
+  factories now (name, email, mrn) — same lesson applied consistently after catching it live on
+  Organization/Facility once and almost repeating it on Patient's `mrn`.
+- Patient pass 2 / `mrn` auto-generation (`2c54a29`): org-scoped sequential `P-000001` format,
+  generated in `before_create` — **not** `before_validation`. Rails' `save`/`create` runs `valid?`
+  (and thus `before_validation`) *before* opening the transaction that wraps the `INSERT`; only
+  `before_save`/`before_create` onward run inside it. A lock taken in `before_validation` would be
+  a `SELECT ... FOR UPDATE` with no surrounding transaction — Postgres releases it the instant that
+  statement finishes, giving zero real protection against two concurrent creates for the same org
+  computing the same "next" number, despite looking like it's protected. `before_create` runs
+  inside the save transaction, so `organization.lock!` there correctly serializes concurrent
+  generation for the same org. That callback placement forced `validates :mrn, presence: true` off
+  `:create` and onto `:update` only — mrn is legitimately blank at pre-generation validate time.
+  `organization.patients.maximum(:mrn)` does a lexicographic string max, which happens to equal
+  the numeric max here only because of the fixed-width zero-padded format. Added
+  `Organization#has_many :patients`, missing from pass 1.
+  Known test-suite gap: no true multi-threaded test forces the actual race — race-safety rests on
+  reasoned-through Postgres row-lock semantics (and a message-expectation proof that `lock!` is
+  called), not a test that reproduces concurrent contention.
+  Specs: 48 examples total now passing.
+
+## Tooling
+
+- Pre-commit hooks (`.claude/settings.json`, `1cbeed2`): two `PreToolUse`/`Bash` hooks, both
+  triggered when the command contains `git commit` — one runs `bundle exec rubocop`, the other
+  `bundle exec rspec`. Either failing blocks the commit (exit 2) with the failing output surfaced.
+  Split into two rather than one combined hook so each is independently reviewable/disableable via
+  `/hooks`. Note for a fresh session: a brand-new `.claude/settings.json` needs one `/hooks` reload
+  (or a session restart) before the settings watcher picks it up — verified this empirically via a
+  sentinel-write test, not assumed.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 
