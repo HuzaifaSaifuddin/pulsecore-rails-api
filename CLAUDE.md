@@ -122,8 +122,9 @@ Checkpoint 3 (domain models) complete: Organization ✅ → Facility ✅ → Use
 JSON-responding `Users::SessionsController` (login/logout). Along the way, found and fixed a known
 upstream Rails 8 + Devise lazy-route-loading bug affecting local dev/test only — confirmed it
 cannot reach production (`eager_load = true` there) — see progress notes below, "Flaky
-first-authentication-after-boot bug". Next: rest of checkpoint 5 (atomic signup, password reset),
-then CORS (checkpoint 8) — the two gates before switching to the React SPA repo.
+first-authentication-after-boot bug". Atomic Org+Facility+org_admin signup (`Users::
+SignupsController`) is done. Remaining before checkpoint 5 is closed out: the password-reset
+flow. Then CORS (checkpoint 8) — the two gates before switching to the React SPA repo.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -621,6 +622,27 @@ then CORS (checkpoint 8) — the two gates before switching to the React SPA rep
   This closes out checkpoint 4's `/api/v1` controllers for every resource that gets one here
   (`Organization` deliberately excluded — brief §8, create-on-signup only, checkpoint 5).
   Specs: 178 examples passing project-wide.
+- `Users::SignupsController#create` (checkpoint 5 proper) — the atomic Org+Facility+org_admin
+  signup transaction from brief §6, and the **only unauthenticated endpoint in the whole API**.
+  `ActiveRecord::Base.transaction` wraps three sequential `create!` calls (Organization, then a
+  same-named starter Facility, then the org_admin User with `default_facility` set to that
+  facility); any failure raises `ActiveRecord::RecordInvalid`, rolling back everything already
+  created in that request — verified live via `curl` and in specs, not just assumed: a duplicate
+  admin email (failing on the *third* create) correctly rolls back the organization and facility
+  that had already been successfully inserted moments earlier. `sign_in(user)` after a successful
+  create, matching the auto-login UX a signup flow should have.
+  Lives at `app/controllers/users/signups_controller.rb` (`Users::SignupsController`), grouped
+  with `Users::SessionsController` since both are unauthenticated, `User`-identity-related,
+  Devise-adjacent concerns — but routed at `/api/v1/signup`, not `/users/signup`, since nothing
+  Devise-related forces this one under `/users/...` the way `devise_for` does for sessions, and
+  every other endpoint in this API lives under `/api/v1`. Wiring this up caught a real routing
+  gotcha: `resource :signup, controller: "users/signups"` inside `namespace :api do namespace
+  :v1 do ... end end` resolves *relative to the current namespace* — Rails silently looked for
+  `Api::V1::Users::SignupsController`, which doesn't exist. Needed a leading slash,
+  `controller: "/users/signups"`, to get an absolute reference to the real class.
+  Also adds `OrganizationSerializer` — `Organization` never had one before since it never had a
+  controller of its own (still doesn't — see below).
+  Specs: 183 examples passing project-wide.
 
 ## Tooling
 
@@ -658,6 +680,15 @@ then CORS (checkpoint 8) — the two gates before switching to the React SPA rep
 **Actual API surface as built** (source of truth for the SPA repo — keep exact: routes, params,
 response/error shapes):
 
+- `POST /api/v1/signup` — the **only unauthenticated** endpoint in this API, and the only way an
+  Organization ever gets created. Body: `{"organization": {"name", "email", "phone_number"},
+  "user": {"email", "password", "first_name", "last_name"}}` — no `role` accepted (always
+  `org_admin`), no facility fields (the starter facility is always same-named as the
+  organization). Success: `201`, `{"user": {...}, "organization": {...}, "facility": {...}}`
+  (each shaped like that resource's own `GET` response elsewhere in this doc) — also signs the
+  new admin in (`_pulse_core_session` cookie set, same as `POST /users/sign_in`). Validation
+  failure on *any* of the three creates: `422`, `{"errors": [...]}`, and nothing is persisted —
+  atomic, verified live.
 - `POST /users/sign_in` — body `{"user": {"email": "...", "password": "..."}}`. Requires
   `Accept: application/json` header (see progress notes above — `Content-Type` alone is not
   enough for Rails to pick the JSON response format). Success: `200`,
