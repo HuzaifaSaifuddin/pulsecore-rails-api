@@ -18,6 +18,8 @@ class Patient < ApplicationRecord
   validates :mrn, presence: true, on: :update
   validates :mrn, uniqueness: { scope: :organization_id }, allow_nil: true
 
+  scope :visible_to, ->(user) { where(organization_id: user.organization_id) }
+
   def full_name
     [ first_name, last_name ].compact_blank.join(" ").presence
   end

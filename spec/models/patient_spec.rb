@@ -139,4 +139,17 @@ RSpec.describe Patient, type: :model do
       create(:patient, organization: organization, mrn: nil)
     end
   end
+
+  describe ".visible_to" do
+    let(:organization) { create(:organization) }
+    let(:other_organization) { create(:organization) }
+    let(:user) { create(:user, organization: organization) }
+
+    it "returns only patients belonging to the user's organization" do
+      own_patient = create(:patient, organization: organization)
+      create(:patient, organization: other_organization)
+
+      expect(Patient.visible_to(user)).to contain_exactly(own_patient)
+    end
+  end
 end
