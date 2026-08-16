@@ -89,7 +89,8 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 ## Progress
 
 **Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
-Facility ✅ → User/auth ✅ → Patient ✅ → Appointment (next) → Admission.
+Facility ✅ → User/auth ✅ → Patient ✅ → Appointment (pass 1 done, workflow methods next) →
+Admission.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -165,6 +166,32 @@ Facility ✅ → User/auth ✅ → Patient ✅ → Appointment (next) → Admiss
   reasoned-through Postgres row-lock semantics (and a message-expectation proof that `lock!` is
   called), not a test that reproduces concurrent contention.
   Specs: 48 examples total now passing.
+- Appointment pass 1 (shape only, no status workflow methods yet): UUID PK, `patient_id`/
+  `facility_id` required, `doctor_id`/`notes_updated_by_id` (FK to User) optional, `status` string
+  column + Rails enum (`scheduled`/`arrived`/`in_progress`/`completed`/`cancelled`) defaulting to
+  `scheduled` at the DB level, `scheduled_start` required (`null: false` + model presence — both
+  layers, matching this project's established double-enforcement pattern), `scheduled_end`
+  optional, composite index on `(facility_id, scheduled_start)` for the list view's
+  facility+day query.
+  **Deviation from the literal brief text (deliberate):** brief §2 states the same-org integrity
+  rule ("a Patient and Facility on the same Appointment must belong to the same Organization")
+  only for Patient+Facility. Extended the identical check to `doctor` and `notes_updated_by` as
+  well — both are FKs to User, and the brief's own stated rationale (defense against a tenant's
+  data ending up cross-attributed to another tenant) applies equally to a doctor or note-author
+  from a different org being attached to someone else's appointment. Not exercised by any request
+  path yet since controllers don't exist until checkpoint 4, but leaving it out would be the same
+  shape of tenant-isolation gap brief §4 is otherwise strict about. Implemented as one shared
+  private `validate_same_organization(attribute)` helper called from three separate `validate`
+  registrations (one per attribute) so each still reports its error on the correct field.
+  Factory: `spec/factories/appointments.rb` uses the same transient-`organization` pattern as
+  `facility_membership` (patient/facility/doctor all pinned to one shared org via `association
+  ..., organization: organization`) — needed here for the same reason FacilityMembership needed
+  it: two-plus associations that must agree on tenant for the record to be valid at all.
+  Specs: 57 examples total now passing.
+  **Next up (pass 2):** `advance_status`/`revert_status`/`cancel`/`uncancel` fixed-forward-path
+  workflow and the "one active appointment per patient per day" validation (brief §2) — deferred
+  to its own pass since it's a genuinely separate, trickier piece of logic (same-day range check,
+  re-validated on transitions not just create).
 
 ## Tooling
 

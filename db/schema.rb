@@ -10,10 +10,29 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_16_020542) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_16_032507) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pgcrypto"
+
+  create_table "appointments", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.uuid "doctor_id"
+    t.uuid "facility_id", null: false
+    t.text "notes"
+    t.datetime "notes_updated_at"
+    t.uuid "notes_updated_by_id"
+    t.uuid "patient_id", null: false
+    t.datetime "scheduled_end"
+    t.datetime "scheduled_start", null: false
+    t.string "status", default: "scheduled", null: false
+    t.datetime "updated_at", null: false
+    t.index ["doctor_id"], name: "index_appointments_on_doctor_id"
+    t.index ["facility_id", "scheduled_start"], name: "index_appointments_on_facility_id_and_scheduled_start"
+    t.index ["facility_id"], name: "index_appointments_on_facility_id"
+    t.index ["notes_updated_by_id"], name: "index_appointments_on_notes_updated_by_id"
+    t.index ["patient_id"], name: "index_appointments_on_patient_id"
+  end
 
   create_table "facilities", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.datetime "created_at", null: false
@@ -72,6 +91,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_16_020542) do
     t.index ["organization_id"], name: "index_users_on_organization_id"
   end
 
+  add_foreign_key "appointments", "facilities"
+  add_foreign_key "appointments", "patients"
+  add_foreign_key "appointments", "users", column: "doctor_id"
+  add_foreign_key "appointments", "users", column: "notes_updated_by_id"
   add_foreign_key "facilities", "organizations"
   add_foreign_key "facility_memberships", "facilities"
   add_foreign_key "facility_memberships", "users"
