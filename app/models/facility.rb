@@ -5,4 +5,6 @@ class Facility < ApplicationRecord
   has_many :users, through: :facility_memberships
 
   validates :name, presence: true, uniqueness: { scope: :organization_id }
+
+  scope :visible_to, ->(user) { where(organization_id: user.organization_id) }
 end

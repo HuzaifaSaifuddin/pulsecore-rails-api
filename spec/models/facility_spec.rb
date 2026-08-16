@@ -51,4 +51,17 @@ RSpec.describe Facility, type: :model do
       expect(facility.organization).to eq organization
     end
   end
+
+  describe ".visible_to" do
+    let(:organization) { create(:organization) }
+    let(:other_organization) { create(:organization) }
+    let(:user) { create(:user, organization: organization) }
+
+    it "returns only facilities belonging to the user's organization" do
+      own_facility = create(:facility, organization: organization)
+      create(:facility, organization: other_organization)
+
+      expect(Facility.visible_to(user)).to contain_exactly(own_facility)
+    end
+  end
 end

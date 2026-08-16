@@ -41,9 +41,7 @@ RSpec.describe "Users::Sessions", type: :request do
   describe "DELETE /users/sign_out" do
     context "when signed in" do
       it "signs out with no content" do
-        post "/users/sign_in",
-          params: { user: { email: user.email, password: password } },
-          as: :json
+        sign_in_as(user, password: password)
 
         delete "/users/sign_out", as: :json
 

@@ -117,9 +117,14 @@ checkpoint (see "Deviations") is done: gem/migration/module setup, session middl
 JSON-responding `Users::SessionsController` (login/logout), and request specs, all verified live
 via `curl` and passing. Along the way, found and fixed a known upstream Rails 8 + Devise lazy-route-
 loading bug affecting local dev/test only — confirmed it cannot reach production (`eager_load =
-true` there) — see progress notes below, "Flaky first-authentication-after-boot bug". Next
-concrete step: `/api/v1` controllers + hand-rolled serializers + plain
-AR visibility scopes proper.
+true` there) — see progress notes below, "Flaky first-authentication-after-boot bug". `/api/v1`
+controllers proper now started: `Api::V1::FacilitiesController` (`index`/`create`/`update`) is the
+first one, and establishes the pattern (`Api::V1::BaseController`, hand-rolled serializer,
+`visible_to` scope, `require_org_admin!` role-gating, the `{"errors": [...]}` vs `{"error": "..."}`
+error-shape split) every future `/api/v1` controller should follow. Next: same pattern for the
+rest of the org-scoped resources (Organization, User, Patient), then the facility-scoped ones
+(Appointment, Admission),
+which need `accessible_facilities` instead of `visible_to`.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -430,6 +435,65 @@ AR visibility scopes proper.
   **This bug cannot reach real production traffic, and does not affect CI test runs either** —
   it's purely a `development`/local-non-CI-test-only artifact, self-healing after one request, and
   not worth further engineering effort. No longer flagged for checkpoint 10.
+- `Api::V1::FacilitiesController#index` (checkpoint 4 proper, first `/api/v1` controller) —
+  establishes the pattern every future `/api/v1` controller follows:
+  - `Api::V1::BaseController < ApplicationController` with `before_action :authenticate_user!`
+    — every `/api/v1` controller inherits from this rather than repeating the auth check.
+    Created now (not deferred) since every future controller needs it — not premature, a certain
+    near-term requirement.
+  - Brief §4 visibility scope implemented as a named model scope, matching the brief's own
+    `visible_to(current_user)` language directly: `Facility.scope :visible_to, ->(user) {
+    where(organization_id: user.organization_id) }`. Org-scoped resources (Organization, User,
+    Patient) get the identical pattern; facility-scoped ones (Appointment, Admission) will need
+    `accessible_facilities` instead once built.
+  - Hand-rolled serializer convention: `app/serializers/facility_serializer.rb`, a plain Ruby
+    class (`FacilitySerializer.new(facility).as_json`) — no gem, per the earlier decision.
+    Controller renders `{ facilities: [...] }` (plural key wrapping an array), matching the
+    singular `{ user: {...} }` convention `Users::SessionsController` already established.
+  - Verified live via `curl` against seeded cross-tenant data before writing the request spec:
+    Apollo's org_admin correctly got exactly Apollo's 2 facilities, not Fortis's; unauthenticated
+    request got the same `401`/`{"error": ...}` shape `Users::SessionsController` already
+    produces (Devise's `authenticate_user!` reuses the same `FailureApp` path, no new code
+    needed for that half).
+  - `spec/support/authentication_helpers.rb` added (`sign_in_as(user, password:)`, posts to
+    `/users/sign_in`) — every future request spec needing an authenticated request reuses this
+    instead of repeating the raw POST. Required uncommenting
+    `Rails.root.glob('spec/support/**/*.rb')...` in `rails_helper.rb`, off by default.
+  - `ApplicationSerializer` base class added (`self.render_collection(records)` — maps a
+    collection through `new(record).as_json`) rather than a separate `FacilitiesSerializer`
+    plural class — one serializer class per model stays the norm (matches Rails convention,
+    `FacilitySerializer < ApplicationSerializer`), the collection-wrapping logic only needs to
+    exist once. Justified now (not premature) since the identical `index` shape is confirmed
+    needed by every other org-scoped resource about to be built.
+  - `create`/`update` added same session, at Huzaifa's request to build out full CRUD before
+    committing (also caught a real gap: the `visible_to` scope had shipped with no model spec —
+    fixed, see `spec/models/facility_spec.rb`). This introduced three new precedents every future
+    write action follows:
+    - **Role-gating** (brief §4: create/edit is org_admin-only, a distinct concern from
+      visibility scoping): `Api::V1::BaseController#require_org_admin!` (403 `{"error":
+      "Forbidden"}` if not org_admin) — a shared private method other controllers opt into via
+      `before_action :require_org_admin!, only: [...]`, not applied globally.
+    - **New validation-error shape**: `{"errors": ["Name can't be blank", ...]}` — plural key,
+      array of `errors.full_messages` strings, status `422` (`:unprocessable_content` — the
+      current Rack/Rails status symbol; `:unprocessable_entity` is deprecated, caught via an
+      actual deprecation warning in the spec run and fixed immediately rather than left as
+      noise). Deliberately distinct from the singular `{"error": "<message>"}` shape used for
+      auth/permission/not-found failures (one message, not a list) — that distinction is now the
+      standing convention for every future controller.
+    - **404 over 403 for cross-tenant writes**: `update` looks up the record via
+      `Facility.visible_to(current_user).find(params[:id])`, so a wrong-org ID 404s
+      (`ActiveRecord::RecordNotFound`) rather than 403ing — same anti-enumeration reasoning as
+      `index`'s scope, brief §4's explicit goal. Needed a new `rescue_from
+      ActiveRecord::RecordNotFound` on `ApplicationController` (nothing previously converted
+      that exception into a JSON response at all).
+    - `organization_id` is never accepted from client params on `create` (built via
+      `current_user.organization.facilities.build(...)`) or `update` (`facility_params` only
+      permits `:name`) — verified live via `curl` that a smuggled `organization_id` in the
+      request body is silently ignored, not just "would be validated away."
+    All four behaviors (create success/forbidden/validation-error, update success/cross-org-404/
+    forbidden/organization_id-smuggling-ignored) verified live via `curl` against seeded data
+    before the request specs were written, same discipline as `index`.
+  Specs: 131 examples passing project-wide.
 
 ## Tooling
 
@@ -478,7 +542,26 @@ response/error shapes):
   overridden).
 - Both routes require the cookie sent/received with credentials (`credentials: 'include'` on
   `fetch`/XHR from the SPA) once CORS (checkpoint 8) is configured.
+- `GET /api/v1/facilities` — requires an authenticated session (same cookie as above). Success:
+  `200`, `{"facilities": [{"id", "name", "organization_id"}, ...]}` — every facility belonging to
+  `current_user.organization`, org-scoped per brief §4 (any role can read, not just org_admin).
+  Unauthenticated: `401`, `{"error": "<message>"}` (identical shape to the sign-in failure path).
+- `POST /api/v1/facilities` — body `{"facility": {"name": "..."}}`. org_admin only.
+  `organization_id` is always `current_user.organization`, never client-supplied — any
+  `organization_id` in the body is silently ignored, not validated against. Success: `201`,
+  `{"facility": {"id", "name", "organization_id"}}`. Validation failure: `422`, `{"errors":
+  ["<message>", ...]}` — plural key, array of full messages, distinct from the singular
+  `{"error": "<message>"}` shape used for auth/permission/not-found failures. Non-org_admin: `403`,
+  `{"error": "Forbidden"}`.
+- `PATCH /api/v1/facilities/:id` — same body/response/error shapes as `POST` above. org_admin
+  only, and only for a facility in `current_user.organization` — a wrong-org `:id` gets `404`,
+  `{"error": "Not found"}` (not `403` — anti-enumeration, same reasoning as `index`'s scope).
 
 **Auth mechanism decision:** cookie-session via Devise `database_authenticatable` (decided
 2026-08-16, see Deviations). Not JWT. SPA repo must send credentials on every request
 (`credentials: 'include'`) and CORS must be configured to allow the SPA's origin with credentials.
+
+## TODO
+
+- `README.md` still has Rails' default generated content — needs an actual write-up (setup,
+  `bin/rails db:seed` usage, known seed logins) at some point. Flagged 2026-08-16, not done yet.
