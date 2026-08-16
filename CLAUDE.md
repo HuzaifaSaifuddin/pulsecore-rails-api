@@ -110,21 +110,29 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 
 ## Progress
 
-**Current checkpoint:** 4 (serialization + `/api/v1` controllers), **`/api/v1` controllers done
-for every resource that gets one at this checkpoint**: Facility/User/Patient (org-scoped,
-`visible_to`) and Appointment/Admission (facility-scoped, `accessible_facilities`, plus their
-workflow actions). **`Organization` deliberately has no controller** — brief §8 lists it as
-"create-on-signup only, no general CRUD endpoint yet"; it only gets created via the atomic
-Org+Facility+org_admin transaction, which is checkpoint 5, not built yet.
+**Current checkpoint:** **checkpoints 4, 5, and 8 are all done — per the "Switch signal" section
+above, it's time to move to the React SPA repo (`~/React/pulse_core`), not wait for
+ActiveAdmin/OmniAuth/RSpec (checkpoints 6/7/9) first.**
+Checkpoint 4: `/api/v1` controllers done for every resource that gets one at this checkpoint —
+Facility/User/Patient (org-scoped, `visible_to`) and Appointment/Admission (facility-scoped,
+`accessible_facilities`, plus their workflow actions). `Organization` deliberately has no
+controller — brief §8 lists it as "create-on-signup only, no general CRUD endpoint yet"; it only
+gets created via the atomic Org+Facility+org_admin transaction (checkpoint 5).
+Checkpoint 5: minimal-Devise prep (session middleware, `Users::SessionsController`), atomic
+signup (`Users::SignupsController`), and password reset (`Users::PasswordsController`,
+`config.paranoid = true`) all done.
+Checkpoint 8: CORS done (`rack-cors`, explicit origin allow-list via `SPA_ORIGIN`/
+`SPA_PRODUCTION_ORIGIN` env vars — never a wildcard, since cookie-session auth needs
+`Access-Control-Allow-Credentials`).
 Checkpoint 3 (domain models) complete: Organization ✅ → Facility ✅ → User/auth ✅ → Patient ✅
-→ Appointment ✅ → Admission ✅. The minimal-Devise prep pulled forward into this checkpoint
-(see "Deviations") is done too: gem/migration/module setup, session middleware, a real
-JSON-responding `Users::SessionsController` (login/logout). Along the way, found and fixed a known
-upstream Rails 8 + Devise lazy-route-loading bug affecting local dev/test only — confirmed it
-cannot reach production (`eager_load = true` there) — see progress notes below, "Flaky
-first-authentication-after-boot bug". Atomic Org+Facility+org_admin signup (`Users::
-SignupsController`) is done. Remaining before checkpoint 5 is closed out: the password-reset
-flow. Then CORS (checkpoint 8) — the two gates before switching to the React SPA repo.
+→ Appointment ✅ → Admission ✅. Along the way, found and fixed a known upstream Rails 8 +
+Devise lazy-route-loading bug affecting local dev/test only — confirmed it cannot reach
+production (`eager_load = true` there) — see progress notes below, "Flaky
+first-authentication-after-boot bug".
+Still open, not blocking the switch: ActiveAdmin (6), OmniAuth (7), the RSpec parts gated to
+checkpoint 9 (request specs proving §4 scopes 404 — largely already covered per-resource above,
+but not formally revisited as a checkpoint-9 pass; Devise/OmniAuth account-linking spec needs
+checkpoint 7 first), deployment (10).
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -643,6 +651,42 @@ flow. Then CORS (checkpoint 8) — the two gates before switching to the React S
   Also adds `OrganizationSerializer` — `Organization` never had one before since it never had a
   controller of its own (still doesn't — see below).
   Specs: 183 examples passing project-wide.
+- `Users::PasswordsController` (`create`/`update`, checkpoint 5 remainder — the last piece of
+  checkpoint 5) — lives alongside `Sessions`/`Signups`, subclasses `Devise::PasswordsController`,
+  same override-only-what's-missing approach as `SessionsController`: `create`/`update` reuse
+  Devise's own `send_reset_password_instructions`/`reset_password_by_token`/`successfully_sent?`/
+  `sign_in_after_reset_password?` machinery unmodified, only supplying the final JSON render step.
+  Routed at Devise's own default `/users/password` (not `/api/v1`) — unlike `Signups`, this
+  controller IS wired through `devise_for`'s `controllers:` hash, same as `Sessions`, so nothing
+  about it is hand-rolled routing; the `/users/...` vs `/api/v1/...` split is consistently "is
+  this Devise-routed" now, not arbitrary.
+  **Enabled `config.paranoid = true`** (was commented out, off by default) — a hospital app's
+  forgot-password endpoint is exactly the kind of place email-enumeration matters, and it's a
+  one-line config change to close (Devise's `successfully_sent?` helper clears any "email not
+  found" error and always reports success when paranoid is on). Verified live: identical
+  response body for a registered vs unregistered email. **Caveat worth being honest about, not
+  glossed over**: this only closes *content-based* enumeration — a registered email still takes
+  measurably longer (real DB write + mail delivery) than an unregistered one (near-instant
+  no-op), visible in the server timing logs during manual testing. A timing-based enumeration
+  vector still exists; Devise's paranoid mode doesn't close that, and neither does this
+  controller. Not chased further — flagging honestly rather than overclaiming the guarantee.
+  Specs: 189 examples passing project-wide.
+- CORS (checkpoint 8) — `rack-cors` gem, `config/initializers/cors.rb`. `origins` is an explicit
+  allow-list, never `"*"` — browsers reject a wildcard origin once
+  `Access-Control-Allow-Credentials` is true, and cookie-session auth means the SPA sends
+  credentials on every request. `SPA_ORIGIN` env var (defaults to `http://localhost:5173`, Vite's
+  own stock default) for dev; `SPA_PRODUCTION_ORIGIN` (unset for now) for checkpoint 10. Verified
+  live via `curl`: preflight `OPTIONS` from the allowed origin correctly echoes that exact origin
+  back with `Access-Control-Allow-Credentials: true`; a disallowed origin gets `200` with no
+  `Access-Control-Allow-Origin` header at all (correct — CORS rejection happens client-side in
+  the browser based on the header's absence, not a server-side 403).
+  **`~/React/pulse_core` has not been scaffolded yet** (only its `CLAUDE.md`/brief exist, no
+  `package.json`) — `5173` is Vite's documented default, not a confirmed value from that repo.
+  Whoever scaffolds it needs to either keep the default or update `SPA_ORIGIN` here to match.
+  Specs: 191 examples passing project-wide.
+  **Checkpoints 5 and 8 are both done as of this entry — the "Switch signal" section above says
+  it's time to tell Huzaifa to move to the SPA repo now, not wait for ActiveAdmin/OmniAuth/RSpec
+  first.**
 
 ## Tooling
 
@@ -700,6 +744,23 @@ response/error shapes):
   overridden).
 - Both routes require the cookie sent/received with credentials (`credentials: 'include'` on
   `fetch`/XHR from the SPA) once CORS (checkpoint 8) is configured.
+- `POST /users/password` — body `{"user": {"email": "..."}}`. No authentication needed. Always
+  `200`, `{"message": "If that email is registered, password reset instructions have been
+  sent."}` — **identical regardless of whether the email is actually registered**
+  (`config.paranoid = true`, intentional anti-enumeration). Sends a reset-token email when the
+  email is registered; no observable difference in the response either way (though a real vs.
+  fake email does take measurably different server time — a timing side-channel this doesn't
+  close, see progress notes).
+- `PATCH /users/password` — body `{"user": {"reset_password_token", "password",
+  "password_confirmation"}}`. No authentication needed (the token itself is the credential).
+  Success: `200`, `{"user": {...}}` (same shape as `GET /api/v1/users`'s items), and signs the
+  user in (`_pulse_core_session` cookie set). Invalid/expired/already-used token, or a
+  password/confirmation mismatch: `422`, `{"errors": [...]}`.
+- CORS: allowed origins are `SPA_ORIGIN` (env var, defaults to `http://localhost:5173`) and
+  `SPA_PRODUCTION_ORIGIN` (env var, unset until checkpoint 10). Credentials allowed
+  (`Access-Control-Allow-Credentials: true`), all standard methods, all headers. **The SPA repo
+  must send `credentials: 'include'` on every `fetch`/XHR call** — without it, the browser won't
+  send/accept the session cookie cross-origin regardless of how permissive this config is.
 - `GET /api/v1/facilities` — requires an authenticated session (same cookie as above). Success:
   `200`, `{"facilities": [{"id", "name", "organization_id"}, ...]}` — every facility belonging to
   `current_user.organization`, org-scoped per brief §4 (any role can read, not just org_admin).
