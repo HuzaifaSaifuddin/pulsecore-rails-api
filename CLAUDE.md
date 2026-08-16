@@ -110,21 +110,20 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 
 ## Progress
 
-**Current checkpoint:** 4 (serialization + `/api/v1` controllers), in progress. Checkpoint 3
-(domain models) complete: Organization ✅ → Facility ✅ → User/auth ✅ → Patient ✅ →
-Appointment ✅ → Admission ✅. Mid-way through the minimal-Devise prep pulled forward into this
-checkpoint (see "Deviations") is done: gem/migration/module setup, session middleware, a real
-JSON-responding `Users::SessionsController` (login/logout), and request specs, all verified live
-via `curl` and passing. Along the way, found and fixed a known upstream Rails 8 + Devise lazy-route-
-loading bug affecting local dev/test only — confirmed it cannot reach production (`eager_load =
-true` there) — see progress notes below, "Flaky first-authentication-after-boot bug". `/api/v1`
-controllers proper now started: `Api::V1::FacilitiesController` (`index`/`create`/`update`) is the
-first one, and establishes the pattern (`Api::V1::BaseController`, hand-rolled serializer,
-`visible_to` scope, `require_org_admin!` role-gating, the `{"errors": [...]}` vs `{"error": "..."}`
-error-shape split) every future `/api/v1` controller should follow. Next: same pattern for the
-rest of the org-scoped resources (Organization, User, Patient), then the facility-scoped ones
-(Appointment, Admission),
-which need `accessible_facilities` instead of `visible_to`.
+**Current checkpoint:** 4 (serialization + `/api/v1` controllers), **`/api/v1` controllers done
+for every resource that gets one at this checkpoint**: Facility/User/Patient (org-scoped,
+`visible_to`) and Appointment/Admission (facility-scoped, `accessible_facilities`, plus their
+workflow actions). **`Organization` deliberately has no controller** — brief §8 lists it as
+"create-on-signup only, no general CRUD endpoint yet"; it only gets created via the atomic
+Org+Facility+org_admin transaction, which is checkpoint 5, not built yet.
+Checkpoint 3 (domain models) complete: Organization ✅ → Facility ✅ → User/auth ✅ → Patient ✅
+→ Appointment ✅ → Admission ✅. The minimal-Devise prep pulled forward into this checkpoint
+(see "Deviations") is done too: gem/migration/module setup, session middleware, a real
+JSON-responding `Users::SessionsController` (login/logout). Along the way, found and fixed a known
+upstream Rails 8 + Devise lazy-route-loading bug affecting local dev/test only — confirmed it
+cannot reach production (`eager_load = true` there) — see progress notes below, "Flaky
+first-authentication-after-boot bug". Next: rest of checkpoint 5 (atomic signup, password reset),
+then CORS (checkpoint 8) — the two gates before switching to the React SPA repo.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -606,6 +605,22 @@ which need `accessible_facilities` instead of `visible_to`.
   same `visible_to`/`require_current_facility!`/workflow-action pattern, different terminal
   states and the extra occupancy-conflict rule) is next.
   Specs: 165 examples passing project-wide.
+- `Api::V1::AdmissionsController` — same pattern as `Appointment` end to end (`visible_to` via
+  `accessible_facilities`, `require_current_facility!` on `index`/`create`, notes stamping, the
+  four workflow actions sharing `perform_transition`), built in one pass this time rather than
+  two, now that the pattern is well-established. Only real difference worth recording: verified
+  live via `curl`, then in the request spec, that the occupancy-conflict rule
+  (`no_conflicting_occupying_admission`) actually surfaces correctly through `advance_status` —
+  a *new* admission can always be created as `scheduled` even while the patient already has one
+  arrived/admitted (occupancy only restricts a *second* arrived/admitted, not future planning,
+  per the domain rule), but advancing that second one into `arrived` while the first is still
+  occupying is correctly blocked. First attempt at that spec used a future-dated second admission
+  and got a false pass for the wrong reason — `advance_status`'s own future-day guard fired
+  first (a no-op, not a validation failure), never reaching the occupancy check at all. Fixed by
+  dating it in the past instead, which reaches the real validation.
+  This closes out checkpoint 4's `/api/v1` controllers for every resource that gets one here
+  (`Organization` deliberately excluded — brief §8, create-on-signup only, checkpoint 5).
+  Specs: 178 examples passing project-wide.
 
 ## Tooling
 
@@ -713,6 +728,14 @@ response/error shapes):
   transition isn't currently allowed (wrong status, or `advance_status`'s future-day guard):
   `422`, `{"errors": ["Unable to advance status"]}` (message varies per action) — same shape as
   a normal validation failure, even though no field was actually invalid.
+- `GET`/`POST`/`PATCH /api/v1/admissions[/:id]` and `POST .../advance_status`,
+  `.../revert_status`, `.../cancel`, `.../uncancel` — identical shapes to the `appointments`
+  endpoints above with `appointment`/`appointments` swapped for `admission`/`admissions` and
+  `scheduled_start`/`scheduled_end` swapped for `admission_start`/`admission_end`. One extra
+  failure mode `advance_status` can hit here that `Appointment` doesn't: `422`,
+  `{"errors": ["... conflicts with another arrived or admitted admission -- discharge or cancel
+  that one first."]}` if advancing into `arrived`/`admitted` while the patient already has
+  another admission occupying a bed.
 
 **Auth mechanism decision:** cookie-session via Devise `database_authenticatable` (decided
 2026-08-16, see Deviations). Not JWT. SPA repo must send credentials on every request

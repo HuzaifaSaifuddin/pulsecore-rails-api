@@ -235,6 +235,22 @@ RSpec.describe Admission, type: :model do
     end
   end
 
+  describe ".visible_to" do
+    let(:organization) { create(:organization) }
+    let(:facility) { create(:facility, organization: organization) }
+    let(:other_facility) { create(:facility, organization: organization) }
+    let(:user) { create(:user, organization: organization, role: "doctor") }
+
+    before { create(:facility_membership, user: user, facility: facility) }
+
+    it "returns only admissions at facilities the user can access" do
+      own_admission = create(:admission, organization: organization, facility: facility)
+      create(:admission, organization: organization, facility: other_facility)
+
+      expect(Admission.visible_to(user)).to contain_exactly(own_admission)
+    end
+  end
+
   describe "status" do
     it "defaults to scheduled" do
       admission = create(:admission)

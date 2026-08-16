@@ -23,6 +23,14 @@ Rails.application.routes.draw do
           post :uncancel
         end
       end
+      resources :admissions, only: [ :index, :create, :update ] do
+        member do
+          post :advance_status
+          post :revert_status
+          post :cancel
+          post :uncancel
+        end
+      end
     end
   end
 end

@@ -35,6 +35,7 @@ class Admission < ApplicationRecord
   scope :active, -> { where(status: ACTIVE_STATUSES) }
   scope :occupied, -> { where(status: OCCUPYING_STATUSES) }
   scope :same_day_as, ->(time) { where(admission_start: time.all_day) }
+  scope :visible_to, ->(user) { where(facility_id: user.accessible_facilities) }
 
   def advance_status
     next_status = NEXT_STATUS[status]
