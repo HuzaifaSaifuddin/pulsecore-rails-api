@@ -4,6 +4,7 @@ FactoryBot.define do
     first_name { "Jane" }
     last_name { "Doe" }
     role { "doctor" }
+    password { "Password123" }
     organization
   end
 end
