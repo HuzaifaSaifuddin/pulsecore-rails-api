@@ -8,7 +8,7 @@ FactoryBot.define do
     facility { association :facility, organization: organization }
     doctor { association :user, organization: organization }
     scheduled_start { Time.current }
-    scheduled_end { 1.hour.from_now }
+    scheduled_end { scheduled_start && scheduled_start + 1.hour }
 
     trait :with_notes do
       notes { "Needs Assistance" }

@@ -6,3 +6,14 @@ inherit_gem: { rubocop-rails-omakase: rubocop.yml }
 # # Use `[a, [b, c]]` not `[ a, [ b, c ] ]`
 # Layout/SpaceInsideArrayLiteralBrackets:
 #   Enabled: false
+
+# Omakase's Include list assumes a Minitest `test/` layout and misses this
+# project's `spec/` (RSpec) directory entirely — extend it so spec files get
+# double-quote enforcement too, not just app/lib/config.
+Style/StringLiterals:
+  Include:
+    - "app/**/*"
+    - "config/**/*"
+    - "lib/**/*"
+    - "spec/**/*"
+    - "Gemfile"

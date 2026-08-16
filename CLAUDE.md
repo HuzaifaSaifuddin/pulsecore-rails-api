@@ -89,8 +89,7 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 ## Progress
 
 **Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
-Facility ✅ → User/auth ✅ → Patient ✅ → Appointment (pass 1 done, workflow methods next) →
-Admission.
+Facility ✅ → User/auth ✅ → Patient ✅ → Appointment ✅ → Admission (next).
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -188,10 +187,60 @@ Admission.
   ..., organization: organization`) — needed here for the same reason FacilityMembership needed
   it: two-plus associations that must agree on tenant for the record to be valid at all.
   Specs: 57 examples total now passing.
-  **Next up (pass 2):** `advance_status`/`revert_status`/`cancel`/`uncancel` fixed-forward-path
-  workflow and the "one active appointment per patient per day" validation (brief §2) — deferred
-  to its own pass since it's a genuinely separate, trickier piece of logic (same-day range check,
-  re-validated on transitions not just create).
+- Appointment pass 2 (status workflow, brief §2 complete): app-wide `Time.zone` set to
+  `"Asia/Kolkata"` in `config/application.rb` first — needed since "the org's local timezone" in
+  the brief maps to a single Rails-app-wide timezone (confirmed against the Django source this is
+  ported from, which used `settings.TIME_ZONE` the same way — not a per-organization setting).
+  Rails already stores UTC in Postgres and converts to `Time.zone` on read by default
+  (`config.load_defaults 8.1`), so this one line was the only change needed; the important
+  discipline it imposes is using `Time.current`/`Date.current` everywhere instead of
+  `Time.now`/`Date.today`, which read the OS zone and would silently bypass it.
+  `advance_status`/`revert_status`/`cancel`/`uncancel` all named without a bang — brief's own
+  naming, and deliberately not adopting the AASM-style bang/non-bang event-pair convention: brief
+  §2 explicitly calls this workflow "**not** a general workflow/state-machine engine" (echoed in
+  this file's Non-goals), so borrowing that convention's machinery was the wrong instinct even
+  though the reasoning behind it (bang = raises, non-bang = returns false) is sound elsewhere.
+  `advance_status` blocks on `scheduled_start.to_date > Date.current` (future-day guard, brief
+  §2); `revert_status` deliberately has **no** such guard ("a late correction the next day is
+  fine" — brief's own words, right after describing `advance_status`'s guard). `NEXT_STATUS`/
+  `PREVIOUS_STATUS` (`NEXT_STATUS.invert`) hashes drive the two linear-chain methods; `cancel`/
+  `uncancel` are simple fixed single-transition guards, no map needed.
+  Added the brief's "one active appointment per patient per day" rule
+  (`no_conflicting_active_appointment`) and a `scheduled_end > scheduled_start` check
+  (`validates :scheduled_end, comparison: { greater_than: :scheduled_start }, allow_nil: true` —
+  the latter not literally in the brief's field list, own judgment call, same category as the
+  doctor/notes_updated_by same-org extension from pass 1). The conflict check is gated on `status.
+  in?(ACTIVE_STATUSES)` (self's *own* status, not just the other appointment's) — without that
+  guard a Completed/Cancelled appointment sharing a day with someone else's active appointment
+  would incorrectly fail. Query written DHH/Rails-idiom style: `patient.appointments.active.
+  same_day_as(scheduled_start).where.not(id: id).exists?` — required adding the missing inverse
+  `Patient#has_many :appointments` (same gap as `Organization#has_many :patients` was in Patient
+  pass 1), plus `scope :active` and `scope :same_day_as` (using ActiveSupport's `Time#all_day`
+  instead of hand-rolling `beginning_of_day...end_of_day`) so the query composes and reads as a
+  sentence rather than hitting `Appointment.where(patient_id: ...)` directly.
+  `revert_status`/`uncancel` do **not** need their own pre-check for the conflict rule — `update`
+  already re-runs every `validate` callback against the *new* status before saving, so letting the
+  existing `no_conflicting_active_appointment` validation fail the `update` is sufficient and
+  correctly covers both "re-entering active from non-active" and "moving between two already-
+  active statuses" (self-excluded via `.where.not(id: id)`, so no false positive on the latter).
+  A real gotcha hit and fixed in the specs: asserting object state via `expect(appointment).to
+  be_completed` *immediately after* a failed `update` reads a false result — `update` calls
+  `assign_attributes` before validating, and a validation failure does **not** roll back that
+  in-memory assignment, only the DB write. Any spec asserting state after a blocked
+  transition needs `.reload` first to check what's actually persisted.
+  Also fixed two crash-level typos caught during review before they ever ran: `ACTIVE_STATUSES =
+  [Status.SCHEDULED, ...]` (no such `Status` constant exists — Rails enums don't get a namespaced
+  constant class; plain strings matching the column values is the idiomatic reference) and
+  `NEXT_STATUS.revert` (`Hash` has no `#revert`; `#invert` was meant).
+  Specs: 80 examples total now passing.
+- Rubocop (`.rubocop.yml`): extended `Style/StringLiterals`'s `Include` to add `spec/**/*`.
+  `rubocop-rails-omakase`'s own default `Include` for that cop is `[app/, config/, lib/, test/,
+  Gemfile]` — written for a Minitest `test/` layout, so it silently never applied to this
+  project's `spec/` directory at all. Caught only because a run of single-quoted strings crept
+  into new spec code without rubocop ever flagging it. Fixing the `Include` list surfaced 10
+  pre-existing single-quote offenses in RSpec's own generated boilerplate
+  (`spec/rails_helper.rb` and every spec file's `require 'rails_helper'` line); autocorrected,
+  no behavior change.
 
 ## Tooling
 

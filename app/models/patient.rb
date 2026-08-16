@@ -1,6 +1,8 @@
 class Patient < ApplicationRecord
   belongs_to :organization
 
+  has_many :appointments
+
   enum :gender, {
     male: "male",
     female: "female",

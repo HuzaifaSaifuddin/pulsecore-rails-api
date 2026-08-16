@@ -1,13 +1,13 @@
 # This file is copied to spec/ when you run 'rails generate rspec:install'
-require 'spec_helper'
-ENV['RAILS_ENV'] ||= 'test'
-require_relative '../config/environment'
+require "spec_helper"
+ENV["RAILS_ENV"] ||= "test"
+require_relative "../config/environment"
 # Prevent database truncation if the environment is production
 abort("The Rails environment is running in production mode!") if Rails.env.production?
 # Uncomment the line below in case you have `--require rails_helper` in the `.rspec` file
 # that will avoid rails generators crashing because migrations haven't been run yet
 # return unless Rails.env.test?
-require 'rspec/rails'
+require "rspec/rails"
 # Add additional requires below this line. Rails is not loaded until this point!
 
 # Requires supporting ruby files with custom matchers and macros, etc, in
@@ -37,7 +37,7 @@ end
 RSpec.configure do |config|
   # Remove this line if you're not using ActiveRecord or ActiveRecord fixtures
   config.fixture_paths = [
-    Rails.root.join('spec/fixtures')
+    Rails.root.join("spec/fixtures")
   ]
 
   # If you're not using ActiveRecord, or you'd prefer not to run each of your
@@ -73,4 +73,9 @@ RSpec.configure do |config|
   # Exposes FactoryBot's create/build/attributes_for directly in specs,
   # instead of having to write FactoryBot.create every time.
   config.include FactoryBot::Syntax::Methods
+
+  # Exposes travel_to/freeze_time for specs that need to control "now".
+  # travel_to without a block leaves time traveled, so reset it after every example.
+  config.include ActiveSupport::Testing::TimeHelpers
+  config.after { travel_back }
 end
