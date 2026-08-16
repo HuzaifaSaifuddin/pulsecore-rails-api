@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_15_191054) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_16_020542) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pgcrypto"
@@ -43,6 +43,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_15_191054) do
     t.index ["name"], name: "index_organizations_on_name", unique: true
   end
 
+  create_table "patients", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.date "date_of_birth"
+    t.string "email"
+    t.string "first_name"
+    t.string "gender"
+    t.string "last_name"
+    t.string "mrn"
+    t.uuid "organization_id", null: false
+    t.string "phone_number"
+    t.datetime "updated_at", null: false
+    t.index ["mrn", "organization_id"], name: "index_patients_on_mrn_and_organization_id", unique: true
+    t.index ["organization_id"], name: "index_patients_on_organization_id"
+  end
+
   create_table "users", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.datetime "created_at", null: false
     t.uuid "default_facility_id"
@@ -60,6 +75,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_15_191054) do
   add_foreign_key "facilities", "organizations"
   add_foreign_key "facility_memberships", "facilities"
   add_foreign_key "facility_memberships", "users"
+  add_foreign_key "patients", "organizations"
   add_foreign_key "users", "facilities", column: "default_facility_id"
   add_foreign_key "users", "organizations"
 end

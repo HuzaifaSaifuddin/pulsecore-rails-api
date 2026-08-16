@@ -11,6 +11,8 @@ class User < ApplicationRecord
     receptionist: "receptionist"
   }
 
+  before_validation :normalize_names
+
   validates :email, presence: true, uniqueness: true
   validates :first_name, presence: true
   validates :last_name, presence: true
@@ -38,6 +40,11 @@ class User < ApplicationRecord
   end
 
   private
+
+  def normalize_names
+    self.first_name = first_name.strip if first_name.present?
+    self.last_name = last_name.strip if last_name.present?
+  end
 
   def invalidate_accessible_facilities_cache
     Rails.cache.delete(self.class.accessible_facilities_cache_key(id))

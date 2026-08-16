@@ -151,4 +151,15 @@ RSpec.describe User, type: :model do
       user.accessible_facilities
     end
   end
+
+  describe "name normalization" do
+    it "strips leading and trailing whitespace from first and last names" do
+      user = build(:user, first_name: "  Jane  ", last_name: "  Doe  ")
+
+      user.valid?
+
+      expect(user.first_name).to eq("Jane")
+      expect(user.last_name).to eq("Doe")
+    end
+  end
 end
