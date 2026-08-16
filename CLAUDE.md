@@ -32,10 +32,12 @@ I am acting as a senior Rails API mentor for Huzaifa, not an autonomous builder.
      Patient → Appointment → Admission. Don't redesign the domain (fixed-forward-path status
      workflows, same-day/occupancy rules are specified, not up for simplification).
   4. Serialization + `/api/v1` controllers. Nail exact response/error shape (SPA depends on it).
-     Every action applies brief §4 visibility scope — pick Pundit `Policy::Scope#resolve` OR plain
-     AR scopes, applied consistently, don't mix.
-  5. Devise adapted for API/SPA auth (token vs cookie-session — explain the choice, record it here
-     since SPA repo must match). Email as login identifier. Atomic Org+Facility+org_admin signup.
+     Every action applies brief §4 visibility scope via plain AR scopes, applied consistently
+     (see "Deviations" — Pundit was considered and rejected 2026-08-16). **Minimal Devise
+     (session-cookie, `database_authenticatable` only) pulled forward from checkpoint 5** so
+     `current_user` is real for these controllers from the start — see "Deviations" below.
+  5. Rest of Devise for API/SPA auth beyond the minimal slice pulled into checkpoint 4 (password
+     reset flow, any remaining config). Atomic Org+Facility+org_admin signup.
   6. ActiveAdmin: install, mount, register resources, authorization boundary mirroring "no
      admin/superuser bypass on tenant scopes" (brief §4).
   7. OmniAuth: one real provider (Google/GitHub) + account-linking, to close the Devise & OmniAuth
@@ -85,6 +87,26 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
   `first_name`, `last_name` are all unconditionally required (no conditional/bootstrap exemption),
   and `full_name`'s fallback-to-email branch was removed as dead code. **Revisit explicitly at
   checkpoint 6** if ActiveAdmin ends up needing to reuse `User` for some reason.
+- **Minimal Devise pulled forward into checkpoint 4** (decided 2026-08-16). Checkpoint 4's
+  controllers need a real `current_user` to apply brief §4 visibility scopes against, but Devise
+  was originally checkpoint 5 (after). Rather than build a throwaway `current_user` stub now and
+  a real one later, we're doing just the login/logout slice of Devise (`database_authenticatable`,
+  session-based) as prep work for checkpoint 4, deferring the rest of checkpoint 5 (password
+  reset flow) to when checkpoint 4's controllers are done. **Auth mechanism: cookie-session**, not
+  JWT — chosen since both repos are same-project/likely-same-domain in dev and deploy, and it's
+  the simplest way to actually learn Devise's native mode rather than immediately reaching for
+  `devise-jwt`. SPA repo must send/receive the session cookie (`credentials: 'include'` on
+  fetch/XHR) and CORS (checkpoint 8) must allow credentials from the SPA's origin.
+- **Plain AR scopes over Pundit for brief §4 visibility** (decided 2026-08-16). Brief allows
+  either; picked plain scopes (e.g. `Appointment.visible_to(current_user)`) to avoid adding a new
+  gem's DSL on top of Devise being introduced in the same stretch of work — one new library at a
+  time. Consequence: role-gated create/update checks (org_admin-only actions) need their own home
+  (likely `before_action` guards per controller) since there's no Pundit policy object to hold
+  them centrally.
+- **Hand-rolled PORO serializers over a gem** (decided 2026-08-16). No Alba/Blueprinter/
+  jsonapi-serializer — plain Ruby classes building the JSON hash explicitly, so the exact response
+  shape (load-bearing for the SPA repo) is always visible in this repo's own code, not produced by
+  a library's DSL.
 
 ## Progress
 
@@ -292,5 +314,6 @@ response/error shapes):
 
 _(none yet — first entries land at checkpoint 4)_
 
-**Auth mechanism decision:** not yet made (checkpoint 5). SPA repo must match whatever is chosen
-here (token vs cookie-session).
+**Auth mechanism decision:** cookie-session via Devise `database_authenticatable` (decided
+2026-08-16, see Deviations). Not JWT. SPA repo must send credentials on every request
+(`credentials: 'include'`) and CORS must be configured to allow the SPA's origin with credentials.
