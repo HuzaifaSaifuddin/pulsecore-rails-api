@@ -88,8 +88,9 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 
 ## Progress
 
-**Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
-Facility ✅ → User/auth ✅ → Patient ✅ → Appointment ✅ → Admission (next).
+**Current checkpoint:** 3 (domain models), complete. Order per brief §2: Organization ✅ →
+Facility ✅ → User/auth ✅ → Patient ✅ → Appointment ✅ → Admission ✅. Checkpoint 4
+(serialization + `/api/v1` controllers) is next.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -241,6 +242,36 @@ Facility ✅ → User/auth ✅ → Patient ✅ → Appointment ✅ → Admission
   pre-existing single-quote offenses in RSpec's own generated boilerplate
   (`spec/rails_helper.rb` and every spec file's `require 'rails_helper'` line); autocorrected,
   no behavior change.
+- Admission (brief §2, "structurally a near-twin of Appointment"): same shape/workflow pattern
+  ported over — `NEXT_STATUS`/`PREVIOUS_STATUS` now `scheduled→arrived→admitted→discharged`
+  (different terminal state than Appointment), same `Cancelled` side-branch off `Scheduled` only,
+  same no-bang `advance_status`/`revert_status`/`cancel`/`uncancel` shape, same same-org and
+  `admission_end`-after-`admission_start` validations.
+  **The one real behavioral difference, and where it's easy to under-build**: the brief splits
+  Appointment's single "one active per patient per day" rule into *two* separate rules for
+  Admission, because `Arrived`/`Admitted` mean physically occupying a bed right now (unlike
+  Appointment's `In Progress`, which is just a same-day status):
+  - `no_conflicting_occupying_admission`: self is `Arrived`/`Admitted` → block if the patient has
+    *any other* `Arrived`/`Admitted` admission, **no date filter at all** (occupancy is a
+    right-now fact, not a same-day one — a patient can't be occupying two beds regardless of what
+    day either admission is dated).
+  - `no_conflicting_scheduled_admission_same_day`: self is `Scheduled` → block if the patient has
+    another **not-yet-resolved** admission (`ACTIVE_STATUSES = scheduled/arrived/admitted`, not
+    just other `Scheduled` ones) on the same calendar day — this mirrors Appointment's rule
+    exactly once you swap in Admission's active set.
+  First pass at this only had the first rule, and had it gated on the *other* record's status
+  instead of also gating on *self's own* status — meaning a patient with one ongoing `Arrived`
+  admission couldn't have an unrelated `Scheduled` admission created for a month later, which the
+  brief never asks for (occupancy is about not having a *second* `Arrived`/`Admitted` stay, not
+  about disallowing future planning while one is ongoing). Confirmed via a direct reproduction
+  before fixing. The second rule (`Scheduled` same-day) was missing entirely in that pass — a
+  patient could have unlimited `Scheduled` admissions stacked on the same day with nothing
+  blocking it. Both gaps were masking each other in the original revert_status spec: it built a
+  same-day `Scheduled` conflict while reverting into `Admitted`, which triggered *neither* rule as
+  originally written, silently passed when it should have failed, and was only caught because the
+  test happened to be run and actually failed once written correctly — a good reminder that a
+  green suite only proves what the specs actually exercise.
+  Specs: 117 examples total now passing (project-wide).
 
 ## Tooling
 
