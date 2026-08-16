@@ -89,7 +89,8 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 ## Progress
 
 **Current checkpoint:** 3 (domain models), in progress. Order per brief §2: Organization ✅ →
-Facility ✅ → User/auth ✅ → Patient (next) → Appointment → Admission.
+Facility ✅ → User/auth ✅ → Patient (pass 1 done, pass 2 — `mrn` auto-generation — next) →
+Appointment → Admission.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -137,6 +138,22 @@ Facility ✅ → User/auth ✅ → Patient (next) → Appointment → Admission.
   correctly under RSpec's default transactional test wrapping in this Rails version — historically
   a real gotcha in older Rails where it silently didn't.
   Specs: 30 examples total now passing across Organization/Facility/User/FacilityMembership.
+- Patient pass 1 (`9176903`): UUID PK, `belongs_to :organization` required, deliberately **no**
+  Facility FK per brief §2 (shared across an org's facilities — which visit happened where
+  belongs on Appointment/Admission, not here). `gender` is a string column + Rails `enum` macro
+  (male/female/other), same pattern as `role`. `date_of_birth` kept as a real date column rather
+  than a derived/stored age (age decays every birthday; DOB is the durable source fact age can
+  always be computed from, and DOB doubles as an identity-verification field alongside name).
+  `mrn` has presence + uniqueness (scoped to `organization_id`) validation and a matching
+  composite DB index already, but **no generation logic yet** — `Patient.create` is not usable
+  outside tests until pass 2 adds the auto-generation. Whatever generates it must run in
+  `before_validation`, not `before_create` — `before_create` fires after validations already ran,
+  so a presence check would still see a blank value. Also backported the `normalize_names`
+  (whitespace-strip) pattern from Patient to User for consistency. Test factories: `sequence(...)`
+  used on every uniqueness-validated field across all factories now (name, email, mrn) — same
+  lesson applied consistently after catching it live on Organization/Facility once and almost
+  repeating it on Patient's `mrn`.
+  Specs: 41 examples total now passing.
 
 **ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
 
