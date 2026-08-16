@@ -15,6 +15,14 @@ Rails.application.routes.draw do
       resources :facilities, only: [ :index, :create, :update ]
       resources :users, only: [ :index, :create ]
       resources :patients, only: [ :index, :create, :update ]
+      resources :appointments, only: [ :index, :create, :update ] do
+        member do
+          post :advance_status
+          post :revert_status
+          post :cancel
+          post :uncancel
+        end
+      end
     end
   end
 end

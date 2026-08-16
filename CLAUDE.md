@@ -534,6 +534,78 @@ which need `accessible_facilities` instead of `visible_to`.
   `organization_id`. `update` uses the same `visible_to(...).find` cross-org-404 pattern as
   Facility.
   Specs: 146 examples passing project-wide.
+- `Api::V1::AppointmentsController` (`index`/`create`/`update`, checkpoint 4 proper) — first
+  **facility-scoped** resource, first real use of `accessible_facilities` and brief §5's
+  "current facility" concept. Deliberately built as a two-pass split (shape now, the
+  `advance_status`/`revert_status`/`cancel`/`uncancel` workflow actions as a follow-up pass),
+  mirroring how the `Appointment` model itself was originally built.
+  - `Appointment.visible_to` scope: `where(facility_id: user.accessible_facilities)` — same
+    method name as the org-scoped resources' `visible_to`, deliberately, even though the
+    underlying mechanism differs (facility membership vs. org membership) — keeps controller
+    code identical in shape regardless of resource type; each model owns getting its own
+    scoping right.
+  - **`require_current_facility!`** added to `Api::V1::BaseController` (brief §5/§8): `index`/
+    `create` 409 with `{"error": "No current facility selected"}` if
+    `current_user.default_facility_id` is blank — the distinguishable response brief §8
+    suggests the SPA's router should intercept to redirect to a "choose facility" step.
+    `update` does *not* require it — editing an already-accessible record via `visible_to` is
+    independent of which facility is "current."
+  - `create`'s `facility` is always `current_user.default_facility`, never client-selectable —
+    brief §7 states this explicitly for the booking flow ("facility always fixed to the
+    Current Facility"). `index` scopes to the current facility *and* a `?date=` param
+    (defaulting to `Date.current`) — matches the model's own `(facility_id, scheduled_start)`
+    composite index and the brief's description of the list view.
+  - `update` only permits `:doctor_id, :scheduled_start, :scheduled_end, :notes` — `status` is
+    deliberately not in the permitted list at all (verified live via `curl`: a `status` value in
+    the request body is silently dropped, not validated away) since status changes go through
+    the dedicated workflow actions, not a plain update.
+  - Notes attribution: `notes_updated_by`/`notes_updated_at` are stamped server-side (from
+    `current_user`/`Time.current`) whenever `notes_changed?` after assignment, on both `create`
+    and `update` — not something the model itself can know (`current_user` is controller-layer
+    knowledge), and not naively "was the param present" (which would misfire on a no-op update
+    setting notes to their existing value).
+  - **Real bug caught and fixed via `curl` before any spec was written**: `Facility` had no
+    `has_many :appointments` (or `:admissions`) — `current_user.default_facility.appointments`
+    raised `NoMethodError`. Same category of missing-inverse-association gap this repo's history
+    already hit twice before (`Organization#has_many :patients`,
+    `Patient#has_many :appointments`) — added both inverses to `Facility` (the `:admissions`
+    one pre-emptively, since `Api::V1::AdmissionsController` will need the identical shape).
+  - **Real RSpec-testing gotcha caught while writing the date-filter spec**: `get path, params:
+    {...}, as: :json` does **not** send `params` as a query string — confirmed straight from
+    `action_dispatch/testing/integration.rb`: when `method == :get && as == :json && params`,
+    Rails silently rewrites the request into a `POST` with an `X-Http-Method-Override: GET`
+    header and a JSON body instead, which 400'd against this route. Fixed by dropping `as:
+    :json` for that GET and setting `headers: { "Accept" => "application/json" }` directly —
+    worth remembering for any future GET-with-query-params spec.
+  - Also caught and fixed in my own first draft of the request spec, not the app code: two
+    `let!` appointments landing on the same patient/same day, tripping
+    `no_conflicting_active_appointment` — same category of mistake as the seed-data work
+    earlier this session, now hit a second time in test-writing specifically. Fixed with a
+    second `other_patient` fixture rather than relaxing anything.
+  Specs: 156 examples passing project-wide.
+- `Api::V1::AppointmentsController` pass 2 — the `advance_status`/`revert_status`/`cancel`/
+  `uncancel` workflow actions, closing out the two-pass split from earlier. Member routes
+  (`POST /api/v1/appointments/:id/advance_status` etc.), each just looking the record up via
+  `Appointment.visible_to(current_user).find(...)` (same cross-facility-404 protection as
+  `update`) and calling the matching model method.
+  - The four model methods return `false` for two genuinely different reasons that look
+    identical from the controller: a plain business-rule no-op (terminal state, or
+    `advance_status`'s future-day guard) that never touches `.errors` at all, versus a real
+    validation failure from the underlying `update` (e.g. a same-day conflict) that does.
+    Rather than inventing a third status code to distinguish them, both render the same `422`
+    `{"errors": [...]}` shape as every other validation failure in this API —
+    `errors.full_messages.presence || ["Unable to #{action}"]` falls back to a generic message
+    only when the no-op case left `.errors` empty.
+  - One shared private `perform_transition(action)` calls `appointment.public_send(action)` —
+    four nearly-identical 6-line action bodies (find, call, branch, render) was repetitive
+    enough to warrant this, unlike three merely-similar lines elsewhere in this codebase.
+  - All six real scenarios (advance succeeds, future-date no-op, cancel succeeds, double-cancel
+    no-op, uncancel succeeds, revert succeeds) verified live via `curl` against seeded data
+    before any spec was written, same discipline as every other controller this checkpoint.
+  This closes out `Appointment`'s `/api/v1` surface — `Admission` (structurally a near-twin,
+  same `visible_to`/`require_current_facility!`/workflow-action pattern, different terminal
+  states and the extra occupancy-conflict rule) is next.
+  Specs: 165 examples passing project-wide.
 
 ## Tooling
 
@@ -617,6 +689,30 @@ response/error shapes):
   Validation failure: `422`, `{"errors": [...]}`.
 - `PATCH /api/v1/patients/:id` — same body/response/error shapes as `POST` above, same
   any-authenticated-org-member access. Wrong-org `:id`: `404`, `{"error": "Not found"}`.
+- `GET /api/v1/appointments` — optional `?date=YYYY-MM-DD` query param (defaults to today).
+  Requires `current_user.default_facility_id` set — if absent: `409`, `{"error": "No current
+  facility selected"}`. Success: `200`, `{"appointments": [{"id", "patient_id", "facility_id",
+  "doctor_id", "status", "scheduled_start", "scheduled_end", "notes", "notes_updated_by_id",
+  "notes_updated_at"}, ...]}` — every appointment at `current_user.default_facility` on that
+  date. Unauthenticated: `401`, `{"error": "<message>"}`.
+- `POST /api/v1/appointments` — body `{"appointment": {"patient_id", "doctor_id", "scheduled_start",
+  "scheduled_end", "notes"}}`. Any authenticated org member (same reasoning as Patient — routine
+  clinical work, not admin-gated). Same `409` current-facility requirement as `GET`.
+  `facility_id` is always `current_user.default_facility`, never client-supplied. Success: `201`,
+  `{"appointment": {...}}` (same shape as `GET`). Validation failure (incl. cross-org patient,
+  same-day conflict): `422`, `{"errors": [...]}`.
+- `PATCH /api/v1/appointments/:id` — body `{"appointment": {"doctor_id", "scheduled_start",
+  "scheduled_end", "notes"}}` — **`status` is not accepted here**, silently dropped even if
+  present in the body; status changes go through the four actions below instead. No
+  current-facility requirement (unlike `GET`/`POST`) — only requires the record be in
+  `current_user.accessible_facilities`. A facility the user can't access: `404`, `{"error": "Not
+  found"}`.
+- `POST /api/v1/appointments/:id/advance_status`, `.../revert_status`, `.../cancel`,
+  `.../uncancel` — no body needed. Same `visible_to`-scoped lookup as `PATCH` (wrong-facility
+  `:id`: `404`). Success: `200`, `{"appointment": {...}}` (same shape as `GET`). If the
+  transition isn't currently allowed (wrong status, or `advance_status`'s future-day guard):
+  `422`, `{"errors": ["Unable to advance status"]}` (message varies per action) — same shape as
+  a normal validation failure, even though no field was actually invalid.
 
 **Auth mechanism decision:** cookie-session via Devise `database_authenticatable` (decided
 2026-08-16, see Deviations). Not JWT. SPA repo must send credentials on every request

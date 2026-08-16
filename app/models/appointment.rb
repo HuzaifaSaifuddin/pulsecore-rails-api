@@ -32,6 +32,7 @@ class Appointment < ApplicationRecord
 
   scope :active, -> { where(status: ACTIVE_STATUSES) }
   scope :same_day_as, ->(time) { where(scheduled_start: time.all_day) }
+  scope :visible_to, ->(user) { where(facility_id: user.accessible_facilities) }
 
   def advance_status
     next_status = NEXT_STATUS[status]

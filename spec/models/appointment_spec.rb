@@ -165,6 +165,22 @@ RSpec.describe Appointment, type: :model do
     end
   end
 
+  describe ".visible_to" do
+    let(:organization) { create(:organization) }
+    let(:facility) { create(:facility, organization: organization) }
+    let(:other_facility) { create(:facility, organization: organization) }
+    let(:user) { create(:user, organization: organization, role: "doctor") }
+
+    before { create(:facility_membership, user: user, facility: facility) }
+
+    it "returns only appointments at facilities the user can access" do
+      own_appointment = create(:appointment, organization: organization, facility: facility)
+      create(:appointment, organization: organization, facility: other_facility)
+
+      expect(Appointment.visible_to(user)).to contain_exactly(own_appointment)
+    end
+  end
+
   describe "status" do
     it "defaults to scheduled" do
       appointment = create(:appointment)
