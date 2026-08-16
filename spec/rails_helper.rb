@@ -77,5 +77,14 @@ RSpec.configure do |config|
   # Exposes travel_to/freeze_time for specs that need to control "now".
   # travel_to without a block leaves time traveled, so reset it after every example.
   config.include ActiveSupport::Testing::TimeHelpers
+
+  # Rails 8 lazy-loads routes (Rails::Engine::LazyRouteSet) in test/development, but
+  # Devise.mappings is only populated as a side effect of routes actually being drawn
+  # (via devise_for in routes.rb). On a fresh boot, Warden's first-ever authentication
+  # attempt runs before anything has forced that draw, finds zero strategies registered
+  # for the scope, and fails with a generic "unauthenticated" error even for correct
+  # credentials. Devise.mappings' own getter guards against this on access, so touching
+  # it once before the suite runs closes the gap before any request spec can hit it.
+  config.before(:suite) { Devise.mappings }
   config.after { travel_back }
 end
