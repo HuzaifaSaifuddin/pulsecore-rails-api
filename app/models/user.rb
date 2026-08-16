@@ -22,6 +22,8 @@ class User < ApplicationRecord
   validates :last_name, presence: true
   validates :role, presence: true
 
+  scope :visible_to, ->(user) { where(organization_id: user.organization_id) }
+
   after_commit :invalidate_accessible_facilities_cache, on: :update, if: :saved_change_to_role?
 
   def self.accessible_facilities_cache_key(user_id)

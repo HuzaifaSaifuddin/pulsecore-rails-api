@@ -162,4 +162,17 @@ RSpec.describe User, type: :model do
       expect(user.last_name).to eq("Doe")
     end
   end
+
+  describe ".visible_to" do
+    let(:organization) { create(:organization) }
+    let(:other_organization) { create(:organization) }
+    let(:user) { create(:user, organization: organization) }
+
+    it "returns only users belonging to the given user's organization" do
+      own_user = create(:user, organization: organization)
+      create(:user, organization: other_organization)
+
+      expect(User.visible_to(user)).to contain_exactly(user, own_user)
+    end
+  end
 end

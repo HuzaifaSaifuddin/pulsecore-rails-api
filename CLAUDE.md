@@ -494,6 +494,34 @@ which need `accessible_facilities` instead of `visible_to`.
     forbidden/organization_id-smuggling-ignored) verified live via `curl` against seeded data
     before the request specs were written, same discipline as `index`.
   Specs: 131 examples passing project-wide.
+- `Api::V1::UsersController` (`index`/`create`, checkpoint 4 proper). Same pattern as Facility
+  (`User.visible_to`, role-gated `create` only, same error shapes) with a few User-specific calls
+  worth recording:
+  - **`create` here is deliberately *not* signup** — brief §6 makes Organization creation only
+    happen via the (not-yet-built) atomic Org+Facility+org_admin transaction; this is "an
+    org_admin adds a staff member to their own org." `organization` comes from
+    `current_user.organization`, never client params, same principle as Facility.
+  - The org_admin supplies the new staff member's initial password directly in the request —
+    brief doesn't specify an invite/reset-token flow for staff creation, and building one now
+    would mean depending on the password-reset flow (checkpoint 5 remainder, not built yet).
+    Revisit if an invite-style flow turns out to be wanted instead.
+  - `UserSerializer` (id/email/first_name/last_name/role/organization_id/default_facility_id —
+    never `encrypted_password`/`reset_password_token`) became the single source of truth for
+    "what a user looks like over the wire" — `Users::SessionsController` refactored to use it
+    too instead of its own private `user_json`, removing the duplication that would otherwise
+    exist between the two.
+  - Caught and fixed a real gotcha before it ever shipped: Rails' `enum` macro raises
+    `ArgumentError` for an unrecognized value (e.g. `role: "superadmin"`) rather than a normal
+    validation error — without handling it, a bad enum value from a client would `500` instead
+    of cleanly `422`ing. Added `rescue_from ArgumentError` to `ApplicationController`
+    (app-wide, not just this controller — `Patient#gender` and `Appointment`/`Admission#status`
+    will hit the identical gotcha once those controllers exist), rendering the same `{"errors":
+    [...]}` shape as a normal validation failure. Verified live via `curl` before writing the
+    spec for it.
+  - `index` open to any authenticated org member (brief §4 groups User with Facility under
+    "any staff can read, org_admin-only to write"), verified live that a `doctor` role can list
+    users but not create one.
+  Specs: 138 examples passing project-wide.
 
 ## Tooling
 
@@ -556,6 +584,15 @@ response/error shapes):
 - `PATCH /api/v1/facilities/:id` — same body/response/error shapes as `POST` above. org_admin
   only, and only for a facility in `current_user.organization` — a wrong-org `:id` gets `404`,
   `{"error": "Not found"}` (not `403` — anti-enumeration, same reasoning as `index`'s scope).
+- `GET /api/v1/users` — requires an authenticated session, any role. Success: `200`,
+  `{"users": [{"id", "email", "first_name", "last_name", "role", "organization_id",
+  "default_facility_id"}, ...]}` — every user in `current_user.organization`, never
+  `encrypted_password`/`reset_password_token`. Unauthenticated: `401`, `{"error": "<message>"}`.
+- `POST /api/v1/users` — body `{"user": {"email", "password", "first_name", "last_name",
+  "role"}}`. org_admin only — this is "add a staff member to my own org," not signup;
+  `organization_id` is always `current_user.organization`, not client-supplied. Success: `201`,
+  `{"user": {...}}` (same shape as `GET`). Validation failure (incl. an unrecognized `role`
+  value): `422`, `{"errors": [...]}`. Non-org_admin: `403`, `{"error": "Forbidden"}`.
 
 **Auth mechanism decision:** cookie-session via Devise `database_authenticatable` (decided
 2026-08-16, see Deviations). Not JWT. SPA repo must send credentials on every request
