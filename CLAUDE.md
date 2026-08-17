@@ -833,7 +833,5 @@ response/error shapes):
 2026-08-16, see Deviations). Not JWT. SPA repo must send credentials on every request
 (`credentials: 'include'`) and CORS must be configured to allow the SPA's origin with credentials.
 
-## TODO
-
-- `README.md` still has Rails' default generated content — needs an actual write-up (setup,
-  `bin/rails db:seed` usage, known seed logins) at some point. Flagged 2026-08-16, not done yet.
+`README.md` written (2026-08-17): setup, `bin/rails db:seed` usage, known seed logins, running
+tests, CORS env vars.
