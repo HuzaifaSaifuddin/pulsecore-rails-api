@@ -13,6 +13,7 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
       resource :signup, only: [ :create ], controller: "/users/signups"
+      resource :me, only: [ :show ], controller: "me"
       resources :facilities, only: [ :index, :create, :update ]
       resources :users, only: [ :index, :create ]
       resources :patients, only: [ :index, :create, :update ]

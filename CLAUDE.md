@@ -687,6 +687,18 @@ checkpoint 7 first), deployment (10).
   **Checkpoints 5 and 8 are both done as of this entry — the "Switch signal" section above says
   it's time to tell Huzaifa to move to the SPA repo now, not wait for ActiveAdmin/OmniAuth/RSpec
   first.**
+- `Api::V1::MeController#show` (2026-08-19, requested from the SPA-repo side once that session
+  started building against this API and hit brief §5's "expose current_facility + the full
+  switchable list via a /me or /session payload" — the SPA was reduced to using
+  `GET /api/v1/facilities`'s 200-vs-401 as a crude session probe with no real user payload
+  before this existed). `resource :me, only: [:show], controller: "me"` — same gotcha as
+  `resource :signup` before it: Rails pluralizes a singular `resource`'s default controller
+  lookup (`Api::V1::MesController`), so the explicit `controller:` override is required, not
+  optional. Reuses `UserSerializer`/`FacilitySerializer`/`User#accessible_facilities` as-is, no
+  new serialization logic — `current_facility` is `nil` when `default_facility_id` is unset
+  (guarded, not assumed non-nil). No new authorization concern: `Api::V1::BaseController`'s
+  existing `authenticate_user!` is sufficient, this is "who am I," not a new visibility scope.
+  Specs: 194 examples passing project-wide.
 
 ## Tooling
 
@@ -761,6 +773,15 @@ response/error shapes):
   (`Access-Control-Allow-Credentials: true`), all standard methods, all headers. **The SPA repo
   must send `credentials: 'include'` on every `fetch`/XHR call** — without it, the browser won't
   send/accept the session cookie cross-origin regardless of how permissive this config is.
+- `GET /api/v1/me` — brief §5's "who is currently authenticated, and what's their facility
+  situation" payload. The SPA calls this on boot (and after login) to decide whether to show the
+  login form or go straight to the dashboard, since the session cookie is `HttpOnly` and
+  invisible to JS. Success: `200`, `{"user": {...}}` (same shape as `GET /api/v1/users` items),
+  plus `"current_facility"` (the full facility object for `default_facility_id`, or `null` if
+  unset) and `"accessible_facilities"` (every facility from `User#accessible_facilities`, same
+  shape as `GET /api/v1/facilities` items — the full switchable list, not just the current one).
+  Unauthenticated: `401`, `{"error": "<message>"}`, same shape as every other unauthenticated
+  response.
 - `GET /api/v1/facilities` — requires an authenticated session (same cookie as above). Success:
   `200`, `{"facilities": [{"id", "name", "organization_id"}, ...]}` — every facility belonging to
   `current_user.organization`, org-scoped per brief §4 (any role can read, not just org_admin).
