@@ -17,10 +17,12 @@ class User < ApplicationRecord
 
   before_validation :normalize_names
 
-  validates :email, presence: true, uniqueness: true
+  # email presence/format/uniqueness comes from devise :validatable -- no separate manual
+  # `validates :email` (it would just duplicate that).
   validates :first_name, presence: true
   validates :last_name, presence: true
   validates :role, presence: true
+  validate :default_facility_within_organization
 
   scope :visible_to, ->(user) { where(organization_id: user.organization_id) }
 
@@ -79,6 +81,17 @@ class User < ApplicationRecord
   def normalize_names
     self.first_name = first_name.strip if first_name.present?
     self.last_name = last_name.strip if last_name.present?
+  end
+
+  # Defense in depth: no endpoint currently sets default_facility_id straight from client
+  # params (it's derived from org-scoped facility_ids, or checked against accessible_facilities
+  # in PATCH /api/v1/me), but a stray cross-org default would be exactly the tenant-isolation
+  # leak brief §4 is strict about. Same shape as Appointment/Admission's same-org checks.
+  def default_facility_within_organization
+    return if default_facility_id.blank? || organization_id.blank?
+    return if organization.facilities.exists?(id: default_facility_id)
+
+    errors.add(:default_facility, "must belong to the user's organization")
   end
 
   def invalidate_accessible_facilities_cache

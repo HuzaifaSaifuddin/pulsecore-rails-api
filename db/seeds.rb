@@ -84,8 +84,11 @@ def seed_organization(name, facility_names)
     doctor
   end
 
+  # Deliberately left with no default_facility: the receptionist is a member of every
+  # facility, so login won't auto-pick one (that only happens with exactly one accessible) --
+  # a ready-made subject for exercising the "choose a facility" step and PATCH /api/v1/me.
   receptionist = seed_user("reception@#{slug}.com", organization: organization, role: "receptionist",
-    first_name: "Anjali", last_name: "Nair", default_facility: facilities.first)
+    first_name: "Anjali", last_name: "Nair", default_facility: nil)
   facilities.each { |facility| FacilityMembership.find_or_create_by!(user: receptionist, facility: facility) }
   print "."
   puts

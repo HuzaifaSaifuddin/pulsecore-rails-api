@@ -140,6 +140,47 @@ RSpec.describe Patient, type: :model do
     end
   end
 
+  # The `lock!` expectation above proves the row lock is *taken*; this proves it actually
+  # *serializes* concurrent creation. Genuinely races several DB connections, so it can't run
+  # inside RSpec's transactional wrapper -- each thread would sit in its own isolated
+  # transaction and never see the others' inserts -- hence use_transactional_tests = false and
+  # the hand cleanup.
+  describe "mrn generation under real concurrency" do
+    self.use_transactional_tests = false
+
+    after do
+      Patient.delete_all
+      Organization.delete_all
+    end
+
+    it "never assigns two patients in the same organization the same mrn" do
+      organization = create(:organization)
+      worker_count = 4
+      ready = Concurrent::CountDownLatch.new(worker_count)
+      release = Concurrent::CountDownLatch.new(1)
+
+      workers = Array.new(worker_count) do
+        Thread.new do
+          ready.count_down
+          release.wait
+          ActiveRecord::Base.connection_pool.with_connection do
+            Patient.create!(
+              first_name: "Race", last_name: "Test", date_of_birth: "1990-01-01",
+              gender: "other", phone_number: "9000000000", organization: organization, mrn: nil
+            )
+          end
+        end
+      end
+
+      ready.wait
+      release.count_down
+      workers.each(&:join) # re-raises RecordNotUnique in this thread if the lock failed to serialize
+
+      mrns = organization.patients.pluck(:mrn)
+      expect(mrns).to match_array((1..worker_count).map { |n| format("P-%06d", n) })
+    end
+  end
+
   describe ".visible_to" do
     let(:organization) { create(:organization) }
     let(:other_organization) { create(:organization) }

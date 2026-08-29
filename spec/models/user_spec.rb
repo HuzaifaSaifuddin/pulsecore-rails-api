@@ -53,6 +53,23 @@ RSpec.describe User, type: :model do
 
       expect { user.role = "superuser" }.to raise_error(ArgumentError)
     end
+
+    it "is valid when default_facility belongs to the user's organization" do
+      organization = create(:organization)
+      facility = create(:facility, organization: organization)
+
+      user = build(:user, organization: organization, default_facility: facility)
+
+      expect(user).to be_valid
+    end
+
+    it "is invalid when default_facility belongs to another organization" do
+      user = build(:user, organization: create(:organization),
+        default_facility: create(:facility, organization: create(:organization)))
+
+      expect(user).not_to be_valid
+      expect(user.errors[:default_facility]).to include("must belong to the user's organization")
+    end
   end
 
   describe "associations" do

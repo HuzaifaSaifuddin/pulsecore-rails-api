@@ -122,9 +122,10 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 **Current checkpoint:** **this repo's API surface is effectively complete. Checkpoints 4, 5, 8
 done and the SPA switch happened 2026-08-19. As of 2026-08-29 ActiveAdmin (6) and OmniAuth (7)
 are descoped entirely — moved to a future standard-Rails app `pulse_core_rails` (see curriculum
-6/7). **Checkpoint 9 closed 2026-08-29** — the formal §4 request-spec pass (see the last
-Progress entry). The only thing left open here is checkpoint 10 (deployment). Ongoing work is
-SPA-driven API additions like the `/me` endpoint and nested serializers below.**
+6/7). **Checkpoint 9 closed 2026-08-29**, and all the flagged optional cleanups done the same
+day (see the last two Progress entries). **The only thing left is checkpoint 10 (deployment)** —
+deliberately deferred. Ongoing work is SPA-driven API additions like the `/me` endpoint, nested
+serializers, and the facility assigner below.**
 Checkpoint 4: `/api/v1` controllers done for every resource that gets one at this checkpoint —
 Facility/User/Patient (org-scoped, `visible_to`) and Appointment/Admission (facility-scoped,
 `accessible_facilities`, plus their workflow actions). `Organization` deliberately has no
@@ -222,7 +223,10 @@ checkpoint 7.
   `Organization#has_many :patients`, missing from pass 1.
   Known test-suite gap: no true multi-threaded test forces the actual race — race-safety rests on
   reasoned-through Postgres row-lock semantics (and a message-expectation proof that `lock!` is
-  called), not a test that reproduces concurrent contention.
+  called), not a test that reproduces concurrent contention. **Closed 2026-08-29** — see the
+  "optional cleanups" Progress entry: `spec/models/patient_spec.rb` now has a real
+  4-connection concurrency example (`use_transactional_tests = false`), verified to fail 3/3
+  with `organization.lock!` removed and pass 5/5 with it.
   Specs: 48 examples total now passing.
 - Appointment pass 1 (shape only, no status workflow methods yet): UUID PK, `patient_id`/
   `facility_id` required, `doctor_id`/`notes_updated_by_id` (FK to User) optional, `status` string
@@ -351,9 +355,11 @@ checkpoint 7.
   which conflicts with brief §6's atomic Organization+Facility+org_admin transaction — that stays
   hand-rolled) and **not** `:rememberable` (persistent "remember me" login isn't specified
   anywhere in the brief). `:validatable` kept since nothing else in this codebase validates
-  password presence/length — note it now duplicates `User`'s own manual
-  `validates :email, presence: true, uniqueness: true`; harmless but flagged as a cleanup
-  candidate, not yet done.
+  password presence/length. **Cleanup done 2026-08-29**: the manual
+  `validates :email, presence: true, uniqueness: true` was removed — `:validatable` already
+  covers email presence/format/uniqueness, and the two produced identical error messages
+  ("can't be blank", "has already been taken"), verified by the existing `user_spec` email
+  tests still passing.
   `rails generate devise User` auto-generates a migration assuming a fresh `users` table — this
   project's `users` table already existed (email column + its unique index from `CreateUsers`), so
   the generated migration as-is would have hit a duplicate-column/duplicate-index-name error on
@@ -845,6 +851,34 @@ checkpoint 7.
   a test artifact, not a bug; production `solid_cache` and the test `:null_store` both make
   invalidation coherent, and the request spec covers it.)
   Specs: 234 examples passing project-wide (+15).
+- Optional cleanups — all the "nice to have, never done" items cleared in one pass (2026-08-29,
+  Huzaifa: "do all the optional bits", deployment excepted). +3 examples, 237 project-wide:
+  - **`:validatable` email-validation duplication removed** — dropped `User`'s manual
+    `validates :email, presence: true, uniqueness: true`; `devise :validatable` already does
+    presence + format + uniqueness with the same error strings. Confirmed by the existing
+    `user_spec` email tests passing untouched.
+  - **`User#default_facility_within_organization` validation added** — defense in depth. No
+    endpoint sets `default_facility_id` from raw client params any more (it's derived from
+    org-scoped `facility_ids`, or checked against `accessible_facilities` in `PATCH /me`), but
+    a stray cross-org value would be a §4 tenant-isolation leak. Same shape as Appointment/
+    Admission's same-org validators. Two model specs.
+  - **`mrn` concurrency now actually tested** — `spec/models/patient_spec.rb` "mrn generation
+    under real concurrency": 4 threads on their own pooled connections, released together via
+    `Concurrent::CountDownLatch`, each creating a patient in one org; asserts the mrns come out
+    as exactly `P-000001..P-000004`. Needs `self.use_transactional_tests = false` (threads on
+    separate connections can't see each other inside one test transaction) + a hand
+    `Patient/Organization.delete_all` in `after`. Proven to have teeth: 3/3 fail with
+    `RecordNotUnique` when `organization.lock!` is commented out, 5/5 (and full-suite,
+    two random seeds) pass with it. This closes the "Known test-suite gap" noted on Patient
+    pass 2 above.
+  - **Seeds**: the seeded receptionist now has `default_facility: nil` (they're a member of
+    every facility, so login won't auto-pick) — a ready-made account for exercising the
+    "choose a facility" step and `PATCH /api/v1/me`.
+  - **README** brought up to date: new API section (endpoint groups + pointer to CLAUDE.md's
+    "Actual API surface" as the authoritative contract), the auth model (cookie-session,
+    `credentials: 'include'`, `Accept: application/json`, login facility auto-set), and the
+    seed facility-setup note.
+  Specs: 237 examples passing project-wide.
 
 ## Tooling
 

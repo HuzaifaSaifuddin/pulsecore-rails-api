@@ -38,6 +38,40 @@ Fortis Healthcare is seeded the same way at `@fortishealthcare.com`. Run `bin/ra
 db:seed` to see the full generated list, including per-organization patient/
 appointment/admission counts.
 
+Facility setup per seeded org: each doctor is a member of exactly one facility (and
+has it as their current facility); the **receptionist is a member of every facility
+and has no current facility set** — a ready-made account for exercising the
+"choose a facility" step and `PATCH /api/v1/me`.
+
+## API
+
+All application endpoints are under `/api/v1` and require an authenticated session
+except `POST /api/v1/signup`. Auth-related routes (`/users/sign_in`, `/users/sign_out`,
+`/users/password`) are Devise-mounted at the top level.
+
+* `POST /api/v1/signup` — the only way an Organization is created (atomic
+  Organization + starter Facility + org_admin User), and the only unauthenticated
+  endpoint.
+* `GET /api/v1/me` — current user + current facility + accessible facilities. The SPA
+  calls this on boot to decide login-vs-dashboard (the session cookie is `HttpOnly`).
+* `PATCH /api/v1/me` — the user sets their own current facility to one of their
+  accessible facilities.
+* `facilities`, `users` — org-scoped; any staff can read, org_admin-only to write.
+  `users` create/update also manage facility memberships (`facility_ids`).
+* `patients` — org-scoped; any staff can read and write.
+* `appointments`, `admissions` — scoped to the caller's current facility; include the
+  status-workflow actions (`advance_status` / `revert_status` / `cancel` / `uncancel`).
+
+`CLAUDE.md`'s "Actual API surface" section is the authoritative contract (exact request/
+response/error shapes) — keep it in sync when changing endpoints.
+
+### Auth model
+
+Cookie-session via Devise (`database_authenticatable`), not JWT. The SPA must send
+`credentials: 'include'` on every request and set `Accept: application/json`. On login,
+if the user has exactly one accessible facility and no current facility, it's set
+automatically; otherwise the SPA routes to the facility picker.
+
 ## Running tests
 
 ```
