@@ -38,25 +38,31 @@ I am acting as a senior Rails API mentor for Huzaifa, not an autonomous builder.
      `current_user` is real for these controllers from the start — see "Deviations" below.
   5. Rest of Devise for API/SPA auth beyond the minimal slice pulled into checkpoint 4 (password
      reset flow, any remaining config). Atomic Org+Facility+org_admin signup.
-  6. ActiveAdmin: install, mount, register resources, authorization boundary mirroring "no
-     admin/superuser bypass on tenant scopes" (brief §4).
-  7. OmniAuth: one real provider (Google/GitHub) + account-linking, to close the Devise & OmniAuth
-     curriculum.
+  6. ~~ActiveAdmin~~ — **DESCOPED from this repo 2026-08-29** (Huzaifa's call). ActiveAdmin is a
+     server-rendered HTML engine and every path to running it inside an `--api` app is a
+     workaround (asset pipeline, `ActionController::Base` rendering, AA 4.x still beta on Rails
+     8.1). Moving to a separate standard (non-API) Rails app, `pulse_core_rails`, built later
+     against the same brief — Stimulus + other out-of-the-box Rails, ActiveAdmin, and optionally
+     extending Devise there where none of it needs a workaround.
+  7. ~~OmniAuth~~ — **DESCOPED from this repo 2026-08-29** (same call, same reason). Moves to
+     `pulse_core_rails` as the optional Devise extension work.
   8. CORS config for SPA dev + deployed origins.
   9. RSpec (deliberate refresher) — **interleaved starting 2026-08-15, not batched at the end**:
      a model spec accompanies every model as it's built from here on (started with retrofitting
-     Organization + Facility). What's left gated to checkpoint 9 proper is only the parts that
-     need later checkpoints to exist: request specs proving §4 scopes 404 cross-tenant access
-     (needs checkpoint 4 controllers) and the Devise/OmniAuth account-linking spec (needs
-     checkpoints 5/7).
+     Organization + Facility). **DONE 2026-08-29.** The final gated piece — a formal pass over
+     the §4 cross-tenant/cross-facility 404 behavior across every `/api/v1` action — is complete
+     (see last Progress entry). The Devise/OmniAuth account-linking spec was dropped with
+     checkpoint 7.
   10. Deployment.
 - External curricula to cross-reference (Obsidian vault, 6 topics each): `[[ActiveAdmin]]` and
-  `[[Devise & OmniAuth]]`. When a checkpoint here satisfies one of their numbered topics, note it
-  in the Progress block below.
+  `[[Devise & OmniAuth]]`. **As of 2026-08-29 neither is executed in this repo** — `[[ActiveAdmin]]`
+  in full and the OmniAuth half of `[[Devise & OmniAuth]]` move to the `pulse_core_rails` standard
+  app (see checkpoints 6/7 above). The Devise slice this repo did build (checkpoints 4/5) still
+  satisfies the non-OmniAuth topics of `[[Devise & OmniAuth]]`.
 
 ## Switch signal
 
-Once the Devise auth checkpoint (5) and CORS (8) are done, tell Huzaifa it's time to switch to the React SPA repo (`~/React/pulse_core`) — don't wait for ActiveAdmin/OmniAuth/RSpec first.
+Once the Devise auth checkpoint (5) and CORS (8) are done, tell Huzaifa it's time to switch to the React SPA repo (`~/React/pulse_core`) — don't wait for ActiveAdmin/OmniAuth/RSpec first. **Already switched (2026-08-19).** ActiveAdmin + OmniAuth have since been descoped entirely (2026-08-29) — see curriculum 6/7.
 
 ## Non-goals (brief §3)
 
@@ -85,8 +91,11 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
   reusing `User` for ActiveAdmin login would put a roleless/orgless row in the same table as real
   tenant staff, which is exactly the shape §4 warns against. Consequence: `User.organization_id`,
   `first_name`, `last_name` are all unconditionally required (no conditional/bootstrap exemption),
-  and `full_name`'s fallback-to-email branch was removed as dead code. **Revisit explicitly at
-  checkpoint 6** if ActiveAdmin ends up needing to reuse `User` for some reason.
+  and `full_name`'s fallback-to-email branch was removed as dead code. Originally flagged to
+  **revisit at checkpoint 6** if ActiveAdmin needed to reuse `User` — moot now that ActiveAdmin
+  is descoped from this repo (2026-08-29, see curriculum 6). The decision stands on its own
+  merits: `User` is strictly tenant staff, no bootstrap/system row, no revisit trigger left here.
+  The separate `AdminUser` model is now `pulse_core_rails`'s concern, not this repo's.
 - **Minimal Devise pulled forward into checkpoint 4** (decided 2026-08-16). Checkpoint 4's
   controllers need a real `current_user` to apply brief §4 visibility scopes against, but Devise
   was originally checkpoint 5 (after). Rather than build a throwaway `current_user` stub now and
@@ -110,9 +119,12 @@ Insurance, Staff Scheduling, a generic workflow/state-machine engine, a full rol
 
 ## Progress
 
-**Current checkpoint:** **checkpoints 4, 5, and 8 are all done — per the "Switch signal" section
-above, it's time to move to the React SPA repo (`~/React/pulse_core`), not wait for
-ActiveAdmin/OmniAuth/RSpec (checkpoints 6/7/9) first.**
+**Current checkpoint:** **this repo's API surface is effectively complete. Checkpoints 4, 5, 8
+done and the SPA switch happened 2026-08-19. As of 2026-08-29 ActiveAdmin (6) and OmniAuth (7)
+are descoped entirely — moved to a future standard-Rails app `pulse_core_rails` (see curriculum
+6/7). **Checkpoint 9 closed 2026-08-29** — the formal §4 request-spec pass (see the last
+Progress entry). The only thing left open here is checkpoint 10 (deployment). Ongoing work is
+SPA-driven API additions like the `/me` endpoint and nested serializers below.**
 Checkpoint 4: `/api/v1` controllers done for every resource that gets one at this checkpoint —
 Facility/User/Patient (org-scoped, `visible_to`) and Appointment/Admission (facility-scoped,
 `accessible_facilities`, plus their workflow actions). `Organization` deliberately has no
@@ -129,10 +141,14 @@ Checkpoint 3 (domain models) complete: Organization ✅ → Facility ✅ → Use
 Devise lazy-route-loading bug affecting local dev/test only — confirmed it cannot reach
 production (`eager_load = true` there) — see progress notes below, "Flaky
 first-authentication-after-boot bug".
-Still open, not blocking the switch: ActiveAdmin (6), OmniAuth (7), the RSpec parts gated to
-checkpoint 9 (request specs proving §4 scopes 404 — largely already covered per-resource above,
-but not formally revisited as a checkpoint-9 pass; Devise/OmniAuth account-linking spec needs
-checkpoint 7 first), deployment (10).
+Descoped 2026-08-29 (Huzaifa's call — every route to running a server-rendered HTML engine
+inside an `--api` app is a workaround, and this repo's job is the SPA's API contract): ActiveAdmin
+(6) and OmniAuth (7), both relocated to a future standard (non-API) Rails app `pulse_core_rails`
+to be built against the same brief, where Stimulus / out-of-the-box Rails / ActiveAdmin / optional
+Devise extension all fit without fighting the framework.
+Still open here: only deployment (10). Checkpoint 9's formal §4 request-spec pass was completed
+2026-08-29 (see last Progress entry). The Devise/OmniAuth account-linking spec is dropped with
+checkpoint 7.
 
 - Checkpoint 1: Ruby 3.3.11 (mise), Rails 8.1.3.1, Bundler 4.0.11, Postgres 16.14 confirmed.
 - Checkpoint 2 (`d8d6dce`, `8b0461d`): `rails new . --api --database=postgresql --skip-jbuilder
@@ -719,6 +735,49 @@ checkpoint 7 first), deployment (10).
   stays flat as rows are added — this test fails if someone drops the `.includes` later.
   Specs: 198 examples passing project-wide (+4: nested-object shape + flat-query-count, per
   resource).
+- **Scope decision — ActiveAdmin + OmniAuth descoped from this repo (2026-08-29, Huzaifa's
+  call).** Rationale: this repo is `rails new --api`, and every route to running ActiveAdmin (a
+  server-rendered HTML engine) inside it is a workaround — re-adding an asset pipeline,
+  `ActionController::Base`-style view rendering, and AA 4.x still being beta on Rails 8.1. Rather
+  than carry that debt, ActiveAdmin (checkpoint 6) in full and OmniAuth (checkpoint 7) move to a
+  new **standard (non-API) Rails app, `pulse_core_rails`**, to be built later against the same
+  brief — the intended home for Stimulus, Hotwire/Turbo, other out-of-the-box Rails, ActiveAdmin
+  with its own `AdminUser` Devise scope, and optionally extending Devise (OmniAuth provider +
+  account-linking) — none of which needs a workaround there. No code was written for 6/7 in this
+  repo, so nothing to remove; the API contract and `/api/v1` surface are unaffected. What stays
+  open here is only checkpoint 10 (deployment). See curriculum 6/7 and the Progress header for
+  the full note.
+- **Checkpoint 9 closed — formal §4 request-spec pass (2026-08-29).** Audited every `/api/v1`
+  action against brief §4's "a guessed/enumerated ID for another tenant's record 404s, applied
+  consistently to every action." Found and filled three gaps; suite went 198 → 213 examples,
+  all green, rubocop clean:
+  - **Transition-action isolation.** `advance_status`/`update` already proved the cross-facility
+    404 per resource, but `revert_status`/`cancel`/`uncancel` on Appointment and Admission had
+    no such test (same `visible_to(current_user).find` path, untested). Added
+    `spec/support/shared_examples.rb` with `"a facility-scoped transition action"` — one shared
+    example parameterized by action name, `it_behaves_like`'d for all four transitions in a
+    `"facility-scoped isolation (brief §4)"` describe block in both specs. The old inline
+    `advance_status` 404 tests were folded into that block (net: no duplication). Shared example
+    fits here because every case is structurally identical (same setup, same 404 assertion,
+    only the action string varies) — unlike the transition-*guard* tests ("Unable to cancel"
+    etc.), which differ in starting status, expected message, and sometimes status code, and
+    would need so many params that writing them out is clearer.
+  - **The positive half of the facility scope.** Every facility-scoped request spec used a plain
+    `doctor` with one explicit `FacilityMembership`, so only the "membership required" path was
+    proven. Added an `"org_admin visibility without explicit facility membership (brief §4/§5)"`
+    block to both specs: an `org_admin` with **no** membership successfully advances an
+    appointment/admission at a facility other than their default — proving
+    `User#accessible_facilities`'s org_admin branch (`organization.facilities`) actually reaches
+    the controller.
+  - **Write-path 401.** Every controller only had an unauthenticated test on its `index`. Added
+    a `"when not signed in" → :unauthorized` test on a write path (`create`, or a transition)
+    for all five resource specs — guards against a future `skip_before_action` or an
+    out-of-namespace route silently exposing a write, since `authenticate_user!` is only
+    inherited from `Api::V1::BaseController`, not restated per controller. (Authentication, not
+    strictly §4 visibility — but part of closing the checkpoint "for good".)
+  - Admission also gained the `revert_status` request describe block it never had (happy path +
+    already-at-initial guard), matching Appointment's coverage.
+  Specs: 213 examples passing project-wide.
 
 ## Tooling
 
@@ -749,9 +808,15 @@ checkpoint 7 first), deployment (10).
   `Patient.where(organization: organization).delete_all` (a plain relation, not an association
   proxy) is the fix; always a real `DELETE` regardless of `dependent:` config.
 
-**ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** none started.
+**ActiveAdmin curriculum (Obsidian `[[ActiveAdmin]]`, 6 topics):** not executed in this repo —
+relocated 2026-08-29 to the future `pulse_core_rails` standard-Rails app (an `--api` app is the
+wrong host for it). Topic 1 ("what it is") was covered verbally in the 2026-08-29 session before
+the descope decision; nothing built.
 
-**Devise & OmniAuth curriculum (Obsidian `[[Devise & OmniAuth]]`, 6 topics):** none started.
+**Devise & OmniAuth curriculum (Obsidian `[[Devise & OmniAuth]]`, 6 topics):** the Devise topics
+(sessions, database_authenticatable, recoverable, API/SPA cookie-session config, paranoid mode)
+are satisfied by checkpoints 4/5 in this repo. The OmniAuth topic (provider + account-linking) is
+relocated with ActiveAdmin to `pulse_core_rails`, as optional Devise-extension work.
 
 **Actual API surface as built** (source of truth for the SPA repo — keep exact: routes, params,
 response/error shapes):

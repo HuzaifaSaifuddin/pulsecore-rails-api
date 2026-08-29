@@ -85,5 +85,15 @@ RSpec.describe "Api::V1::Users", type: :request do
         expect(response).to have_http_status(:forbidden)
       end
     end
+
+    context "when not signed in" do
+      it "returns unauthorized" do
+        post "/api/v1/users", params: {
+          user: { email: "nobody@example.com", password: "Password123", first_name: "N", last_name: "B", role: "doctor" }
+        }, as: :json
+
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
   end
 end

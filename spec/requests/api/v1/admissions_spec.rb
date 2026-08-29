@@ -116,6 +116,14 @@ RSpec.describe "Api::V1::Admissions", type: :request do
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body["errors"]).to include("Facility must belong to the patient's organization")
     end
+
+    it "returns unauthorized when not signed in" do
+      post "/api/v1/admissions", params: {
+        admission: { patient_id: patient.id, admission_start: Time.zone.now.iso8601 }
+      }, as: :json
+
+      expect(response).to have_http_status(:unauthorized)
+    end
   end
 
   describe "PATCH /api/v1/admissions/:id" do
@@ -172,14 +180,28 @@ RSpec.describe "Api::V1::Admissions", type: :request do
       expect(response.parsed_body["errors"].first).to match(/arrived or admitted/)
       expect(occupying.reload).to be_arrived
     end
+  end
 
-    it "returns not found for an admission at a facility the user cannot access" do
-      inaccessible = create(:admission, organization: organization, patient: other_patient, facility: other_facility)
+  describe "POST /api/v1/admissions/:id/revert_status" do
+    it "reverts an admission to the previous status" do
+      admission = create(:admission, organization: organization, patient: patient, facility: facility,
+        admission_start: Time.zone.now.change(hour: 9), status: "arrived")
       sign_in_as(doctor, password: password)
 
-      post "/api/v1/admissions/#{inaccessible.id}/advance_status", as: :json
+      post "/api/v1/admissions/#{admission.id}/revert_status", as: :json
 
-      expect(response).to have_http_status(:not_found)
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body["admission"]["status"]).to eq("scheduled")
+    end
+
+    it "returns an error when already at the initial status" do
+      admission = create(:admission, organization: organization, patient: patient, facility: facility)
+      sign_in_as(doctor, password: password)
+
+      post "/api/v1/admissions/#{admission.id}/revert_status", as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body["errors"]).to eq([ "Unable to revert status" ])
     end
   end
 
@@ -204,6 +226,43 @@ RSpec.describe "Api::V1::Admissions", type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body["admission"]["status"]).to eq("scheduled")
+    end
+  end
+
+  # Brief §4: every facility-scoped action 404s (not 403) for a record outside
+  # accessible_facilities. `update` proves this inline above; these cover the four
+  # transition actions, which share the same visible_to(...).find lookup.
+  describe "facility-scoped isolation (brief §4)" do
+    let(:collection_path) { "/api/v1/admissions" }
+    let(:inaccessible_record) do
+      create(:admission, organization: organization, patient: other_patient, facility: other_facility)
+    end
+
+    it_behaves_like "a facility-scoped transition action", "advance_status"
+    it_behaves_like "a facility-scoped transition action", "revert_status"
+    it_behaves_like "a facility-scoped transition action", "cancel"
+    it_behaves_like "a facility-scoped transition action", "uncancel"
+  end
+
+  # Brief §4/§5: the other half of the facility scope -- an org_admin reaches every facility
+  # in their org with no explicit FacilityMembership, unlike doctors/receptionists.
+  describe "org_admin visibility without explicit facility membership (brief §4/§5)" do
+    let!(:org_admin) do
+      create(:user, organization: organization, password: password, role: "org_admin",
+        default_facility: facility)
+    end
+    let!(:admission_at_other_facility) do
+      create(:admission, organization: organization, patient: patient, facility: other_facility,
+        admission_start: Time.zone.now.change(hour: 9))
+    end
+
+    it "lets an org_admin act on an admission at a facility they have no membership to" do
+      sign_in_as(org_admin, password: password)
+
+      post "/api/v1/admissions/#{admission_at_other_facility.id}/advance_status", as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body["admission"]["status"]).to eq("arrived")
     end
   end
 end

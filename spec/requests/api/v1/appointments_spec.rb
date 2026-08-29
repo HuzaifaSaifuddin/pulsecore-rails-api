@@ -142,6 +142,14 @@ RSpec.describe "Api::V1::Appointments", type: :request do
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body["errors"]).to include("Facility must belong to the patient's organization")
     end
+
+    it "returns unauthorized when not signed in" do
+      post "/api/v1/appointments", params: {
+        appointment: { patient_id: patient.id, scheduled_start: Time.zone.now.iso8601 }
+      }, as: :json
+
+      expect(response).to have_http_status(:unauthorized)
+    end
   end
 
   describe "PATCH /api/v1/appointments/:id" do
@@ -194,15 +202,6 @@ RSpec.describe "Api::V1::Appointments", type: :request do
 
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body["errors"]).to eq([ "Unable to advance status" ])
-    end
-
-    it "returns not found for an appointment at a facility the user cannot access" do
-      inaccessible = create(:appointment, organization: organization, patient: other_patient, facility: other_facility)
-      sign_in_as(doctor, password: password)
-
-      post "/api/v1/appointments/#{inaccessible.id}/advance_status", as: :json
-
-      expect(response).to have_http_status(:not_found)
     end
   end
 
@@ -271,6 +270,43 @@ RSpec.describe "Api::V1::Appointments", type: :request do
 
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body["errors"]).to eq([ "Unable to uncancel" ])
+    end
+  end
+
+  # Brief §4: every facility-scoped action 404s (not 403) for a record outside
+  # accessible_facilities. `update` proves this inline above; these cover the four
+  # transition actions, which share the same visible_to(...).find lookup.
+  describe "facility-scoped isolation (brief §4)" do
+    let(:collection_path) { "/api/v1/appointments" }
+    let(:inaccessible_record) do
+      create(:appointment, organization: organization, patient: other_patient, facility: other_facility)
+    end
+
+    it_behaves_like "a facility-scoped transition action", "advance_status"
+    it_behaves_like "a facility-scoped transition action", "revert_status"
+    it_behaves_like "a facility-scoped transition action", "cancel"
+    it_behaves_like "a facility-scoped transition action", "uncancel"
+  end
+
+  # Brief §4/§5: the other half of the facility scope -- an org_admin reaches every facility
+  # in their org with no explicit FacilityMembership, unlike doctors/receptionists.
+  describe "org_admin visibility without explicit facility membership (brief §4/§5)" do
+    let!(:org_admin) do
+      create(:user, organization: organization, password: password, role: "org_admin",
+        default_facility: facility)
+    end
+    let!(:appointment_at_other_facility) do
+      create(:appointment, organization: organization, patient: patient, facility: other_facility,
+        scheduled_start: Time.zone.now.change(hour: 9))
+    end
+
+    it "lets an org_admin act on an appointment at a facility they have no membership to" do
+      sign_in_as(org_admin, password: password)
+
+      post "/api/v1/appointments/#{appointment_at_other_facility.id}/advance_status", as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body["appointment"]["status"]).to eq("arrived")
     end
   end
 end

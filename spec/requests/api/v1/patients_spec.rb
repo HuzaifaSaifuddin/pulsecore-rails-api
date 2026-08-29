@@ -71,6 +71,17 @@ RSpec.describe "Api::V1::Patients", type: :request do
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body["errors"]).to include("Last name can't be blank")
     end
+
+    it "returns unauthorized when not signed in" do
+      post "/api/v1/patients", params: {
+        patient: {
+          first_name: "New", last_name: "Patient", date_of_birth: "1990-01-01",
+          gender: "other", phone_number: "9123456789"
+        }
+      }, as: :json
+
+      expect(response).to have_http_status(:unauthorized)
+    end
   end
 
   describe "PATCH /api/v1/patients/:id" do

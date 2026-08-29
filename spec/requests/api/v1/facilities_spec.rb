@@ -65,6 +65,14 @@ RSpec.describe "Api::V1::Facilities", type: :request do
         expect(response).to have_http_status(:forbidden)
       end
     end
+
+    context "when not signed in" do
+      it "returns unauthorized" do
+        post "/api/v1/facilities", params: { facility: { name: "New Wing" } }, as: :json
+
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
   end
 
   describe "PATCH /api/v1/facilities/:id" do
