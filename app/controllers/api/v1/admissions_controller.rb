@@ -6,7 +6,7 @@ class Api::V1::AdmissionsController < Api::V1::BaseController
     admissions = Admission.visible_to(current_user)
       .where(facility: current_user.default_facility)
       .same_day_as(date)
-      .includes(:patient, :doctor)
+      .includes(:patient, doctor: :facility_memberships)
 
     render json: { admissions: AdmissionSerializer.render_collection(admissions) }
   end

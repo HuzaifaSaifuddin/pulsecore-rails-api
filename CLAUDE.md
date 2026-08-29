@@ -402,10 +402,12 @@ checkpoint 7.
   suspected `config.reload_routes`/`Devise.mappings` reload racing the first request in dev mode
   (`eager_load = false` there); not chased further since production runs `eager_load = true`,
   which wouldn't hit this window; flagged here rather than silently ignored.
-  Response shapes (source of truth, see below): success →
-  `{"user": {"id", "email", "first_name", "last_name", "role", "organization_id",
-  "default_facility_id"}}`, status 200. Failure → `{"error": "<message>"}`, status 401. Logout →
-  empty body, status 204 (200 if not signed in returns 401 instead, per Devise default).
+  Response shapes (source of truth is the API-surface section below, which has since moved on —
+  the user object gained `facility_ids` and login now auto-sets `default_facility` in the
+  single-accessible-facility case): success → `{"user": {"id", "email", "first_name",
+  "last_name", "role", "organization_id", "default_facility_id"}}`, status 200. Failure →
+  `{"error": "<message>"}`, status 401. Logout → empty body, status 204 (200 if not signed in
+  returns 401 instead, per Devise default).
   **Still open, next up:** `/api/v1` controllers + hand-rolled serializers + plain AR visibility
   scopes proper — this Devise slice was prep work pulled forward, not checkpoint 4 itself.
   Specs: 121 examples passing project-wide, 4 of them `spec/requests/users/sessions_spec.rb`
@@ -795,6 +797,54 @@ checkpoint 7.
   request spec covers 200 / param-narrowing / invalid-role-422 / cross-org-404 / non-admin-403
   / unauthenticated-401.
   Specs: 219 examples passing project-wide.
+- Facility assigner on User create/update + `PATCH /api/v1/me` + login default-facility
+  auto-set (2026-08-29, requested from the SPA side — the "Accounts" screen needs to set which
+  facilities a staff member belongs to, multi-select, and brief §5's current-facility flow had
+  no API at all: no login auto-set, no switch endpoint). Five moving parts:
+  - **`User#assign_facility_memberships(facility_ids)`** — replaces the user's explicit
+    `FacilityMembership` rows with exactly the given ids, scoped to `user.organization`
+    (cross-org ids silently dropped, matching every other tenant-owned attribute here). Goes
+    through per-row `create!`/`destroy!` **on purpose** — `FacilityMembership`'s `after_commit`
+    `accessible_facilities` cache invalidation only fires on instance create/destroy; the
+    obvious `user.facility_ids = [...]` (a `has_many :through` writer) does a bulk `delete_all`
+    that bypasses it. Derives `default_facility`: sole assigned facility → that; several
+    assigned with the current default still among them → keep it; otherwise → nil. Doesn't save
+    (caller does, in a transaction wrapping the membership writes too).
+  - **`UsersController` create/update** now permit `facility_ids: []`; `facility_ids` is
+    stripped from the attrs passed to `build`/`assign_attributes` (it's a real `has_many`
+    writer — must not let it through) and handled only via `assign_facility_memberships`, and
+    **only when the key is present** in the payload (a name-only PATCH leaves memberships
+    alone; `[]` explicitly clears). Both wrapped in `save_with_memberships!` — one transaction;
+    create needs two `save!`s (user first so membership rows can FK it, then again for the
+    derived `default_facility_id`). Switched create/update from `if user.save` to
+    `save!` + `rescue ActiveRecord::RecordInvalid`, matching `SignupsController`'s existing
+    idiom.
+  - **`UserSerializer` gains `facility_ids`** (`user.facility_memberships.map(&:facility_id).
+    sort`). This is in the *base* serializer, so the wire shape stays "one file, one shape" —
+    consequence: the nested `doctor` object in Appointment/Admission payloads now carries
+    `facility_ids` too, so both those controllers' `index` changed `.includes(:patient,
+    :doctor)` → `.includes(:patient, doctor: :facility_memberships)`. The existing
+    `count_queries` specs proved this was load-bearing (they went red without it).
+  - **`PATCH /api/v1/me`** (`resource :me` gained `:update`) — the authenticated user sets
+    their own `default_facility` to any of their own `accessible_facilities`;
+    `accessible_facilities.find_by(id:)` is the tenant + membership check in one, a miss 422s
+    rather than silently no-op'ing. `MeController#show`/`update` share a private
+    `session_payload`.
+  - **Login auto-set** — `Users::SessionsController#respond_with` now calls
+    `assign_sole_accessible_facility`: brief §5's rule, set `default_facility` on login only
+    when it's blank *and* the user has exactly one accessible facility. `update_column` (not
+    `update!`) — a derived convenience, no `updated_at` bump. Note: with the create/update
+    assigner above already setting `default_facility` whenever exactly one facility is assigned,
+    this login path is now mostly a backstop (legacy/seed/imported users, or org_admins in a
+    one-facility org).
+  Verified live via `curl` against seeded Apollo/Fortis data: 2-facility create → null default;
+  narrow to 1 → default set; widen back to 2 → still-valid default kept; name-only PATCH →
+  memberships untouched; `PATCH /me` to an accessible facility → switches; to a Fortis facility
+  → 422; unauthenticated → 401. (Login auto-set couldn't be cleanly curl-verified in dev
+  because the runner process and the server process don't share the dev `:memory_store` cache —
+  a test artifact, not a bug; production `solid_cache` and the test `:null_store` both make
+  invalidation coherent, and the request spec covers it.)
+  Specs: 234 examples passing project-wide (+15).
 
 ## Tooling
 
@@ -851,7 +901,13 @@ response/error shapes):
   `Accept: application/json` header (see progress notes above — `Content-Type` alone is not
   enough for Rails to pick the JSON response format). Success: `200`,
   `{"user": {"id", "email", "first_name", "last_name", "role", "organization_id",
-  "default_facility_id"}}`, sets the `_pulse_core_session` cookie (`HttpOnly`, `SameSite=Lax`).
+  "default_facility_id", "facility_ids"}}`, sets the `_pulse_core_session` cookie (`HttpOnly`,
+  `SameSite=Lax`). `facility_ids` is the array of the user's explicit `FacilityMembership`
+  facility ids (`[]` for an org_admin, who reaches every org facility without memberships).
+  **Login side-effect (brief §5):** if the user has no `default_facility_id` and exactly one
+  accessible facility, it's set automatically here — so `default_facility_id` in this response
+  can be non-null even though the client never set it. Two or more accessible (or zero) and it
+  stays null; the SPA then routes to a "choose a facility" step that calls `PATCH /api/v1/me`.
   Failure: `401`, `{"error": "<message>"}`.
 - `DELETE /users/sign_out` — no body. Success (was signed in): `204`, empty body. Already signed
   out: `401`, empty body (no JSON error object on this particular path — Devise default, not
@@ -884,6 +940,12 @@ response/error shapes):
   shape as `GET /api/v1/facilities` items — the full switchable list, not just the current one).
   Unauthenticated: `401`, `{"error": "<message>"}`, same shape as every other unauthenticated
   response.
+- `PATCH /api/v1/me` — body `{"user": {"default_facility_id": "<uuid>"}}`. The authenticated
+  user sets their own current facility (the nav-bar switcher, and the post-login "choose a
+  facility" step). The id must be one of the caller's own `accessible_facilities` — anything
+  else (not accessible, another org, garbage) is `422`, `{"errors": ["Default facility must be
+  one of your accessible facilities"]}`. Success: `200`, same payload as `GET /api/v1/me`.
+  Unauthenticated: `401`.
 - `GET /api/v1/facilities` — requires an authenticated session (same cookie as above). Success:
   `200`, `{"facilities": [{"id", "name", "organization_id"}, ...]}` — every facility belonging to
   `current_user.organization`, org-scoped per brief §4 (any role can read, not just org_admin).
@@ -900,20 +962,30 @@ response/error shapes):
   `{"error": "Not found"}` (not `403` — anti-enumeration, same reasoning as `index`'s scope).
 - `GET /api/v1/users` — requires an authenticated session, any role. Success: `200`,
   `{"users": [{"id", "email", "first_name", "last_name", "role", "organization_id",
-  "default_facility_id"}, ...]}` — every user in `current_user.organization`, never
-  `encrypted_password`/`reset_password_token`. Unauthenticated: `401`, `{"error": "<message>"}`.
+  "default_facility_id", "facility_ids"}, ...]}` — every user in `current_user.organization`,
+  never `encrypted_password`/`reset_password_token`. `facility_ids` is the array of the user's
+  explicit `FacilityMembership` facility ids (`[]` for an org_admin). Unauthenticated: `401`,
+  `{"error": "<message>"}`.
 - `POST /api/v1/users` — body `{"user": {"email", "password", "first_name", "last_name",
-  "role"}}`. org_admin only — this is "add a staff member to my own org," not signup;
-  `organization_id` is always `current_user.organization`, not client-supplied. Success: `201`,
-  `{"user": {...}}` (same shape as `GET`). Validation failure (incl. an unrecognized `role`
-  value): `422`, `{"errors": [...]}`. Non-org_admin: `403`, `{"error": "Forbidden"}`.
-- `PATCH /api/v1/users/:id` — body `{"user": {"first_name", "last_name", "role"}}`. org_admin
-  only. **Deliberately narrower than `POST`**: `email` (login identifier), `password` (goes
-  through the reset flow), and `organization_id` are **not** accepted — any of them in the body
-  is silently dropped. Success: `200`, `{"user": {...}}` (same shape as `GET`). Unrecognized
-  `role`: `422`, `{"errors": [...]}`. Wrong-org `:id`: `404`, `{"error": "Not found"}` (not
-  `403` — anti-enumeration, same as Facility/Patient). Non-org_admin: `403`; unauthenticated:
-  `401`. A `role` change invalidates that user's `accessible_facilities` cache.
+  "role", "facility_ids": []}}`. org_admin only — this is "add a staff member to my own org,"
+  not signup; `organization_id` is always `current_user.organization`, not client-supplied.
+  `facility_ids` (optional) is a multi-select of which facilities the user belongs to — ids
+  outside the caller's org are silently dropped. Assigning **exactly one** also sets it as the
+  user's `default_facility`; assigning zero or several leaves `default_facility` null (they
+  pick on login / via `PATCH /api/v1/me`). Success: `201`, `{"user": {...}}` (same shape as
+  `GET`). Validation failure (incl. an unrecognized `role` value): `422`, `{"errors": [...]}`.
+  Non-org_admin: `403`, `{"error": "Forbidden"}`.
+- `PATCH /api/v1/users/:id` — body `{"user": {"first_name", "last_name", "role",
+  "facility_ids": []}}`. org_admin only. **Deliberately narrower than `POST`**: `email` (login
+  identifier), `password` (goes through the reset flow), and `organization_id` are **not**
+  accepted — any of them in the body is silently dropped. `facility_ids` behaves as in `POST`
+  **and is only touched when the key is present** — omit it and memberships/`default_facility`
+  are left alone; send `[]` to clear all memberships. When several facilities are assigned, an
+  existing `default_facility` that's still among them is kept; otherwise it's cleared. Success:
+  `200`, `{"user": {...}}` (same shape as `GET`). Unrecognized `role`: `422`, `{"errors":
+  [...]}`. Wrong-org `:id`: `404`, `{"error": "Not found"}` (not `403` — anti-enumeration, same
+  as Facility/Patient). Non-org_admin: `403`; unauthenticated: `401`. A `role` or membership
+  change invalidates that user's `accessible_facilities` cache.
 - `GET /api/v1/patients` — requires an authenticated session, any role. Success: `200`,
   `{"patients": [{"id", "mrn", "first_name", "last_name", "date_of_birth", "gender",
   "phone_number", "email", "organization_id"}, ...]}` — every patient in

@@ -20,7 +20,8 @@ RSpec.describe "Users::Sessions", type: :request do
           "last_name" => user.last_name,
           "role" => user.role,
           "organization_id" => user.organization_id,
-          "default_facility_id" => user.default_facility_id
+          "default_facility_id" => user.default_facility_id,
+          "facility_ids" => []
         )
         expect(response.cookies["_pulse_core_session"]).to be_present
       end
@@ -35,6 +36,38 @@ RSpec.describe "Users::Sessions", type: :request do
         expect(response).to have_http_status(:unauthorized)
         expect(response.parsed_body["error"]).to be_present
       end
+    end
+  end
+
+  describe "current facility auto-assignment on login (brief §5)" do
+    let!(:facility) { create(:facility, organization: organization) }
+
+    it "sets the sole accessible facility as the current one" do
+      user.facilities << facility
+
+      post "/users/sign_in", params: { user: { email: user.email, password: password } }, as: :json
+
+      expect(response.parsed_body["user"]["default_facility_id"]).to eq(facility.id)
+      expect(user.reload.default_facility_id).to eq(facility.id)
+    end
+
+    it "leaves the current facility unset when several are accessible" do
+      user.facilities << [ facility, create(:facility, organization: organization) ]
+
+      post "/users/sign_in", params: { user: { email: user.email, password: password } }, as: :json
+
+      expect(response.parsed_body["user"]["default_facility_id"]).to be_nil
+      expect(user.reload.default_facility_id).to be_nil
+    end
+
+    it "does not override a current facility the user already has" do
+      other = create(:facility, organization: organization)
+      user.update!(default_facility: other)
+      user.facilities << facility
+
+      post "/users/sign_in", params: { user: { email: user.email, password: password } }, as: :json
+
+      expect(user.reload.default_facility_id).to eq(other.id)
     end
   end
 

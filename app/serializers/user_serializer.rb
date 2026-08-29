@@ -11,7 +11,8 @@ class UserSerializer < ApplicationSerializer
       last_name: user.last_name,
       role: user.role,
       organization_id: user.organization_id,
-      default_facility_id: user.default_facility_id
+      default_facility_id: user.default_facility_id,
+      facility_ids: user.facility_memberships.map(&:facility_id).sort
     }
   end
 

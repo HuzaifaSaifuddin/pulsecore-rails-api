@@ -6,7 +6,7 @@ class Api::V1::AppointmentsController < Api::V1::BaseController
     appointments = Appointment.visible_to(current_user)
       .where(facility: current_user.default_facility)
       .same_day_as(date)
-      .includes(:patient, :doctor)
+      .includes(:patient, doctor: :facility_memberships)
 
     render json: { appointments: AppointmentSerializer.render_collection(appointments) }
   end
