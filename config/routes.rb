@@ -15,7 +15,7 @@ Rails.application.routes.draw do
       resource :signup, only: [ :create ], controller: "/users/signups"
       resource :me, only: [ :show ], controller: "me"
       resources :facilities, only: [ :index, :create, :update ]
-      resources :users, only: [ :index, :create ]
+      resources :users, only: [ :index, :create, :update ]
       resources :patients, only: [ :index, :create, :update ]
       resources :appointments, only: [ :index, :create, :update ] do
         member do

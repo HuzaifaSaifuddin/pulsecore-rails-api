@@ -96,4 +96,70 @@ RSpec.describe "Api::V1::Users", type: :request do
       end
     end
   end
+
+  describe "PATCH /api/v1/users/:id" do
+    let!(:staff) { create(:user, organization: organization, role: "receptionist") }
+    let!(:other_org_user) { create(:user, organization: other_organization) }
+
+    context "when signed in as org_admin" do
+      it "updates a staff member's name and role" do
+        sign_in_as(admin, password: password)
+
+        patch "/api/v1/users/#{staff.id}", params: {
+          user: { first_name: "Renamed", role: "doctor" }
+        }, as: :json
+
+        expect(response).to have_http_status(:ok)
+        expect(response.parsed_body["user"]).to include("first_name" => "Renamed", "role" => "doctor")
+      end
+
+      it "does not permit changing email, password, or organization_id" do
+        sign_in_as(admin, password: password)
+        original_email = staff.email
+
+        patch "/api/v1/users/#{staff.id}", params: {
+          user: { last_name: "Fixed", email: "hijack@example.com", organization_id: other_organization.id }
+        }, as: :json
+
+        expect(response).to have_http_status(:ok)
+        expect(staff.reload.email).to eq(original_email)
+        expect(staff.organization_id).to eq(organization.id)
+      end
+
+      it "returns a clean error for an invalid role, instead of a 500" do
+        sign_in_as(admin, password: password)
+
+        patch "/api/v1/users/#{staff.id}", params: { user: { role: "superadmin" } }, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body["errors"]).to include("'superadmin' is not a valid role")
+      end
+
+      it "returns not found for a user in another organization" do
+        sign_in_as(admin, password: password)
+
+        patch "/api/v1/users/#{other_org_user.id}", params: { user: { first_name: "Hijacked" } }, as: :json
+
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "when signed in as a non-admin" do
+      it "returns forbidden" do
+        sign_in_as(doctor, password: password)
+
+        patch "/api/v1/users/#{staff.id}", params: { user: { first_name: "Nope" } }, as: :json
+
+        expect(response).to have_http_status(:forbidden)
+      end
+    end
+
+    context "when not signed in" do
+      it "returns unauthorized" do
+        patch "/api/v1/users/#{staff.id}", params: { user: { first_name: "Nope" } }, as: :json
+
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
+  end
 end

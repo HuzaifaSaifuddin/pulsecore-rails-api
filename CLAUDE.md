@@ -778,6 +778,23 @@ checkpoint 7.
   - Admission also gained the `revert_status` request describe block it never had (happy path +
     already-at-initial guard), matching Appointment's coverage.
   Specs: 213 examples passing project-wide.
+- `Api::V1::UsersController#update` (`PATCH /api/v1/users/:id`, 2026-08-29) — staff-record
+  editing for the SPA's org_admin-only "Accounts" screen. Same `visible_to(current_user).find`
+  cross-org-404 pattern as Facility/Patient `update`; added to `require_org_admin!`'s `only:`
+  list (User writes are org_admin-only per brief §4, same as `create`). **`user_update_params`
+  is deliberately narrower than `user_params`**: only `first_name`/`last_name`/`role` — `email`
+  is the login identifier (correcting it is its own concern, not routine staff management),
+  `password` goes through the reset flow, `organization_id` is never client-settable. A `role`
+  change flows through User's existing `after_commit` `accessible_facilities` cache
+  invalidation (e.g. demoting an org_admin → doctor narrows their facility reach from the whole
+  org to explicit memberships). Invalid `role` values 422 cleanly via the app-wide
+  `rescue_from ArgumentError` already on `ApplicationController` — no new handling. Not gated
+  behind `require_current_facility!` (org-scoped resource, not facility-scoped). Known gap left
+  unaddressed (brief doesn't ask): nothing stops an org_admin demoting themselves / the last
+  org_admin and locking the org out of admin actions. No live `curl` pass this time — the
+  request spec covers 200 / param-narrowing / invalid-role-422 / cross-org-404 / non-admin-403
+  / unauthenticated-401.
+  Specs: 219 examples passing project-wide.
 
 ## Tooling
 
@@ -890,6 +907,13 @@ response/error shapes):
   `organization_id` is always `current_user.organization`, not client-supplied. Success: `201`,
   `{"user": {...}}` (same shape as `GET`). Validation failure (incl. an unrecognized `role`
   value): `422`, `{"errors": [...]}`. Non-org_admin: `403`, `{"error": "Forbidden"}`.
+- `PATCH /api/v1/users/:id` — body `{"user": {"first_name", "last_name", "role"}}`. org_admin
+  only. **Deliberately narrower than `POST`**: `email` (login identifier), `password` (goes
+  through the reset flow), and `organization_id` are **not** accepted — any of them in the body
+  is silently dropped. Success: `200`, `{"user": {...}}` (same shape as `GET`). Unrecognized
+  `role`: `422`, `{"errors": [...]}`. Wrong-org `:id`: `404`, `{"error": "Not found"}` (not
+  `403` — anti-enumeration, same as Facility/Patient). Non-org_admin: `403`; unauthenticated:
+  `401`. A `role` change invalidates that user's `accessible_facilities` cache.
 - `GET /api/v1/patients` — requires an authenticated session, any role. Success: `200`,
   `{"patients": [{"id", "mrn", "first_name", "last_name", "date_of_birth", "gender",
   "phone_number", "email", "organization_id"}, ...]}` — every patient in
