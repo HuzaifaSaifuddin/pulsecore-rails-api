@@ -699,6 +699,26 @@ checkpoint 7 first), deployment (10).
   (guarded, not assumed non-nil). No new authorization concern: `Api::V1::BaseController`'s
   existing `authenticate_user!` is sufficient, this is "who am I," not a new visibility scope.
   Specs: 194 examples passing project-wide.
+- Nested `patient`/`doctor` on Appointment/Admission serializers (2026-08-28, requested from the
+  SPA-repo side — its list+detail split-pane screen needs patient name/MRN/gender/DOB/phone and
+  doctor name per row, and there's no `GET /api/v1/patients/:id` or `/users/:id` show endpoint to
+  resolve the FKs without pulling the whole org collection and joining client-side). Decision:
+  **replace** the raw `patient_id`/`doctor_id` scalars with nested objects rather than adding them
+  alongside — Huzaifa's call, "how production-grade would do it": don't leak bare FKs, expose the
+  relationship as the resource. `facility_id` and `notes_updated_by_id` deliberately **kept** as
+  scalars — facility is always the current facility the SPA already holds from `/me`, and the
+  note-author has no display requirement yet (flag: nest `notes_updated_by` the same way if that
+  changes — one line). Serializers compose by plain Ruby — `AppointmentSerializer` calls
+  `PatientSerializer`/`UserSerializer` (nil-guarded for the optional doctor), so each resource's
+  wire shape still lives in exactly one file (the payoff of hand-rolled POROs over a gem's
+  `has_one`-in-serializer DSL). N+1 avoided at the controller layer, not the serializer: only
+  `index` iterates a collection, so only `index` gets `.includes(:patient, :doctor)`; the
+  single-record actions (`create`/`update`/the four transitions) are 2 extra constant queries, not
+  N+1, left alone. `spec/support/query_helpers.rb` added (`count_queries { }` — subscribes to
+  `sql.active_record`, filters SCHEMA + txn-control noise) so a request spec can assert query count
+  stays flat as rows are added — this test fails if someone drops the `.includes` later.
+  Specs: 198 examples passing project-wide (+4: nested-object shape + flat-query-count, per
+  resource).
 
 ## Tooling
 
@@ -819,10 +839,16 @@ response/error shapes):
   any-authenticated-org-member access. Wrong-org `:id`: `404`, `{"error": "Not found"}`.
 - `GET /api/v1/appointments` — optional `?date=YYYY-MM-DD` query param (defaults to today).
   Requires `current_user.default_facility_id` set — if absent: `409`, `{"error": "No current
-  facility selected"}`. Success: `200`, `{"appointments": [{"id", "patient_id", "facility_id",
-  "doctor_id", "status", "scheduled_start", "scheduled_end", "notes", "notes_updated_by_id",
+  facility selected"}`. Success: `200`, `{"appointments": [{"id", "patient", "facility_id",
+  "doctor", "status", "scheduled_start", "scheduled_end", "notes", "notes_updated_by_id",
   "notes_updated_at"}, ...]}` — every appointment at `current_user.default_facility` on that
-  date. Unauthenticated: `401`, `{"error": "<message>"}`.
+  date. `"patient"` is the full nested object (same shape as a `GET /api/v1/patients` item);
+  `"doctor"` is the full nested user object (same shape as a `GET /api/v1/users` item) or `null`
+  when unset. The raw `patient_id`/`doctor_id` scalars are **not** in the payload — nested objects
+  replace them (`facility_id` and `notes_updated_by_id` stay as scalars: facility is always the
+  current facility the SPA already has, note-author has no display need yet). Controller eager-loads
+  `includes(:patient, :doctor)` so the list is not N+1. Unauthenticated: `401`, `{"error":
+  "<message>"}`.
 - `POST /api/v1/appointments` — body `{"appointment": {"patient_id", "doctor_id", "scheduled_start",
   "scheduled_end", "notes"}}`. Any authenticated org member (same reasoning as Patient — routine
   clinical work, not admin-gated). Same `409` current-facility requirement as `GET`.

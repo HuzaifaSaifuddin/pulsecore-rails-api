@@ -6,9 +6,9 @@ class AdmissionSerializer < ApplicationSerializer
   def as_json(*)
     {
       id: admission.id,
-      patient_id: admission.patient_id,
+      patient: PatientSerializer.new(admission.patient).as_json,
       facility_id: admission.facility_id,
-      doctor_id: admission.doctor_id,
+      doctor: admission.doctor && UserSerializer.new(admission.doctor).as_json,
       status: admission.status,
       admission_start: admission.admission_start,
       admission_end: admission.admission_end,

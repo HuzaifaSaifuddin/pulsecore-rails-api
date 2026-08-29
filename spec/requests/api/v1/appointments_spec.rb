@@ -59,6 +59,37 @@ RSpec.describe "Api::V1::Appointments", type: :request do
         expect(response.parsed_body["appointments"].pluck("id")).to contain_exactly(todays_appointment.id)
       end
 
+      it "embeds the patient and doctor as nested objects" do
+        sign_in_as(doctor, password: password)
+
+        get "/api/v1/appointments", as: :json
+
+        body = response.parsed_body["appointments"].first
+        expect(body).not_to have_key("patient_id")
+        expect(body).not_to have_key("doctor_id")
+        expect(body["patient"]).to include(
+          "id" => patient.id, "mrn" => patient.mrn, "first_name" => patient.first_name,
+          "gender" => patient.gender
+        )
+        expect(body["doctor"]).to include("id" => todays_appointment.doctor_id, "role" => "doctor")
+      end
+
+      it "does not issue a query per appointment when serializing associations" do
+        sign_in_as(doctor, password: password)
+        get "/api/v1/appointments", as: :json # warm the per-request caches
+
+        before_count = count_queries { get "/api/v1/appointments", as: :json }
+
+        3.times do |i|
+          create(:appointment, organization: organization, facility: facility,
+            scheduled_start: Time.zone.now.change(hour: 8 + i))
+        end
+        after_count = count_queries { get "/api/v1/appointments", as: :json }
+
+        expect(response.parsed_body["appointments"].size).to eq(4)
+        expect(after_count).to eq(before_count)
+      end
+
       it "supports filtering by an explicit date" do
         sign_in_as(doctor, password: password)
 
@@ -84,6 +115,8 @@ RSpec.describe "Api::V1::Appointments", type: :request do
       expect(response.parsed_body["appointment"]).to include(
         "facility_id" => facility.id, "status" => "scheduled", "notes" => "First visit"
       )
+      expect(response.parsed_body["appointment"]["patient"]).to include("id" => patient.id, "mrn" => patient.mrn)
+      expect(response.parsed_body["appointment"]["doctor"]).to be_nil
       expect(response.parsed_body["appointment"]["notes_updated_by_id"]).to eq(doctor.id)
     end
 

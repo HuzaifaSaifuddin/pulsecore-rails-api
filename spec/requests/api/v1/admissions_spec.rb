@@ -54,6 +54,37 @@ RSpec.describe "Api::V1::Admissions", type: :request do
         expect(response).to have_http_status(:ok)
         expect(response.parsed_body["admissions"].pluck("id")).to contain_exactly(todays_admission.id)
       end
+
+      it "embeds the patient and doctor as nested objects" do
+        sign_in_as(doctor, password: password)
+
+        get "/api/v1/admissions", as: :json
+
+        body = response.parsed_body["admissions"].first
+        expect(body).not_to have_key("patient_id")
+        expect(body).not_to have_key("doctor_id")
+        expect(body["patient"]).to include(
+          "id" => patient.id, "mrn" => patient.mrn, "first_name" => patient.first_name,
+          "gender" => patient.gender
+        )
+        expect(body["doctor"]).to include("id" => todays_admission.doctor_id, "role" => "doctor")
+      end
+
+      it "does not issue a query per admission when serializing associations" do
+        sign_in_as(doctor, password: password)
+        get "/api/v1/admissions", as: :json # warm the per-request caches
+
+        before_count = count_queries { get "/api/v1/admissions", as: :json }
+
+        3.times do |i|
+          create(:admission, organization: organization, facility: facility,
+            admission_start: Time.zone.now.change(hour: 8 + i))
+        end
+        after_count = count_queries { get "/api/v1/admissions", as: :json }
+
+        expect(response.parsed_body["admissions"].size).to eq(4)
+        expect(after_count).to eq(before_count)
+      end
     end
   end
 
@@ -69,6 +100,8 @@ RSpec.describe "Api::V1::Admissions", type: :request do
       expect(response.parsed_body["admission"]).to include(
         "facility_id" => facility.id, "status" => "scheduled", "notes" => "Observation"
       )
+      expect(response.parsed_body["admission"]["patient"]).to include("id" => patient.id, "mrn" => patient.mrn)
+      expect(response.parsed_body["admission"]["doctor"]).to be_nil
       expect(response.parsed_body["admission"]["notes_updated_by_id"]).to eq(doctor.id)
     end
 

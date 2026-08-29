@@ -6,9 +6,9 @@ class AppointmentSerializer < ApplicationSerializer
   def as_json(*)
     {
       id: appointment.id,
-      patient_id: appointment.patient_id,
+      patient: PatientSerializer.new(appointment.patient).as_json,
       facility_id: appointment.facility_id,
-      doctor_id: appointment.doctor_id,
+      doctor: appointment.doctor && UserSerializer.new(appointment.doctor).as_json,
       status: appointment.status,
       scheduled_start: appointment.scheduled_start,
       scheduled_end: appointment.scheduled_end,
