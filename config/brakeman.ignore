@@ -1,0 +1,51 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "Mass Assignment",
+      "warning_code": 105,
+      "fingerprint": "8f0044610b5695f554af5821e9e2a290614b84e0789ab8dc591cfb5ff0999096",
+      "check_name": "PermitAttributes",
+      "message": "Potentially dangerous key allowed for mass assignment",
+      "file": "app/controllers/api/v1/users_controller.rb",
+      "line": 53,
+      "link": "https://brakemanscanner.org/docs/warning_types/mass_assignment/",
+      "code": "params.require(:user).permit(:email, :password, :first_name, :last_name, :role, :facility_ids => ([]))",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "Api::V1::UsersController",
+        "method": "user_params"
+      },
+      "user_input": ":role",
+      "confidence": "Medium",
+      "cwe_id": [
+        915
+      ],
+      "note": "Intentional. UsersController#create is org_admin-only (require_org_admin!); assigning staff roles is the point of the endpoint. role is a Rails enum, so any value outside the allowlist raises ArgumentError -> 422. No cross-tenant reach: the user is built through current_user.organization.users."
+    },
+    {
+      "warning_type": "Mass Assignment",
+      "warning_code": 105,
+      "fingerprint": "a4fbe907bffecca6c8f5ce7cb2f95ca6b8e54f3c385a7e53f92e18d3e63fdd6f",
+      "check_name": "PermitAttributes",
+      "message": "Potentially dangerous key allowed for mass assignment",
+      "file": "app/controllers/api/v1/users_controller.rb",
+      "line": 60,
+      "link": "https://brakemanscanner.org/docs/warning_types/mass_assignment/",
+      "code": "params.require(:user).permit(:first_name, :last_name, :role, :facility_ids => ([]))",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "Api::V1::UsersController",
+        "method": "user_update_params"
+      },
+      "user_input": ":role",
+      "confidence": "Medium",
+      "cwe_id": [
+        915
+      ],
+      "note": "Intentional. UsersController#update is org_admin-only (require_org_admin!) and the target is loaded via User.visible_to(current_user) (org-scoped, no admin bypass). Editing staff roles is the point of the endpoint. role is a Rails enum, so out-of-allowlist values raise ArgumentError -> 422."
+    }
+  ],
+  "brakeman_version": "8.0.6"
+}
