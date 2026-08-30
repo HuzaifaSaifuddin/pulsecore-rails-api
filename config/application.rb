@@ -39,6 +39,12 @@ module PulseCore
     # Time.now/Date.today read the OS zone instead and would bypass it.
     config.time_zone = "Asia/Kolkata"
 
+    # No ActiveStorage attachments in this app, so skip loading an image-variant
+    # backend. Without this, boot eager-loads image_processing/vips (the Rails 8
+    # default processor); image_processing 2.0 raises there unless ruby-vips +
+    # libvips are installed. :disabled swaps in ActiveStorage's NullTransformer.
+    config.active_storage.variant_processor = :disabled
+
     # Only loads a smaller set of middleware suitable for API only apps.
     # Middleware like session, flash, cookies can be added back manually.
     # Skip views, helpers and assets when generating a new resource.
