@@ -34,7 +34,7 @@ Note: **CI does not run RSpec** (see `config/ci.rb` / `.github/workflows/ci.yml`
 locally before pushing. RSpec uses transactional fixtures and `maintain_test_schema!`, so a
 schema change just needs `db:migrate` (test DB auto-syncs on next run).
 
-Stack: Ruby 3.3.11 (mise), Rails 8.1, PostgreSQL 16+, Puma. Solid Queue/Cache/Cable are in the
+Stack: Ruby 4.0.7 (mise), Rails 8.1, PostgreSQL 16+, Puma. Solid Queue/Cache/Cable are in the
 Gemfile but not yet wired into app logic.
 
 ## Architecture

@@ -8,7 +8,7 @@ The React SPA lives in a sibling repo at `~/React/pulse_core` and is the client 
 
 ## Requirements
 
-* Ruby 3.3.11 (managed via mise)
+* Ruby 4.0.7 (managed via mise)
 * Rails 8.1.3.1
 * PostgreSQL 16+
 
